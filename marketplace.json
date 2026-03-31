@@ -1,0 +1,10 @@
+{
+  "name": "wan-huiyan-memory-hygiene",
+  "owner": { "name": "Huiyan Wan" },
+  "plugins": [{
+    "name": "memory-hygiene",
+    "source": ".",
+    "description": "Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, and ADRs",
+    "version": "1.0.0"
+  }]
+}
