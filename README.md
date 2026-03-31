@@ -10,6 +10,7 @@ Claude Code's auto-memory system accumulates cruft over time:
 - **Lesson numbers collide** when multiple sessions add lessons concurrently
 - **ADR numbers duplicate** when decisions are recorded without checking existing files
 - **Memory files become orphaned** — they exist on disk but aren't indexed, so future sessions never see them
+- **Stale memories contradict current code** — "uses library X" when the codebase moved to Y
 - **Cross-file duplicates** waste context window space and can give contradictory guidance
 
 These problems are tedious to find manually and compound with every session.
@@ -20,6 +21,7 @@ These problems are tedious to find manually and compound with every session.
 You: my memory files are getting messy, can you clean them up?
 
 Claude: [Reads MEMORY.md, all memory files, lessons, and ADRs]
+        [Checks tiered loading, staleness, duplicates, ADR best practices]
         [Produces structured audit report grouped by severity]
 
         ## Memory Hygiene Audit
@@ -28,15 +30,22 @@ Claude: [Reads MEMORY.md, all memory files, lessons, and ADRs]
         - MEMORY.md is 482 lines (limit: ~200) — truncation is active
         - 3 orphaned memory files not indexed
 
+        ### Staleness
+        - 2 memory files reference functions that no longer exist
+        - 1 lesson contradicts a newer global lesson
+
         ### Duplicates
-        - Global lessons: 5 number collisions (#41, #42, #65, #66, #68)
-        - Project lessons: 5 duplicate pairs
+        - Global lessons: 5 number collisions
         - ADRs: 6 number collisions
+
+        ### ADR Best Practices
+        - 4 ADRs missing bidirectional supersedes links
+        - No index file (22 ADRs — recommend creating one)
 
         ### Recommendations
         - Extract session logs to sessions_archive.md (saves ~300 lines)
         - Merge 5 lesson pairs, suffix 5 number collisions
-        - Renumber 7 ADR files to fill gaps
+        - Renumber 7 ADR files, add cross-links
 
         Want me to proceed with all fixes?
 
@@ -70,32 +79,36 @@ git clone https://github.com/wan-huiyan/memory-hygiene.git ~/.cursor/skills/memo
 
 ## What You Get
 
-- **Structured audit report** grouped by severity (critical / duplicates / structural)
+- **Structured audit report** grouped by severity (critical / staleness / duplicates / tiering / ADR best practices)
 - **MEMORY.md slimming** — extracts inline content to topic files, rewrites as a ~40-line index
+- **Tiered loading audit** — checks content lives at the right tier (L0 index / L1 topic / L2 archive)
+- **Staleness detection** — finds broken references, relative dates, codebase contradictions, conflicting lessons
+- **Session compression** — flags old verbose session files for compression, suggests archive splits
 - **Lesson deduplication** — finds number collisions within and across files, merges overlapping content
-- **ADR renumbering** — detects duplicate numbers, renames files and updates internal references
-- **Orphan detection** — finds memory files not indexed in MEMORY.md
-- **Cross-file duplicate detection** — identifies lessons that exist in both global and project files
+- **ADR best practices** — numbering, bidirectional links, Confirmation sections, index file, gap stubs
+- **Cross-project scope review** — suggests promoting frequently-reused project lessons to global (with user approval)
+- **Writing quality gate** — three-question check before creating new memory files
 
 ## How It Works
 
 | Phase | What happens |
 |-------|-------------|
-| **Discover** | Reads MEMORY.md, all memory files, both lessons files, and ADR directory in parallel |
+| **Discover** | Reads all persistent state in parallel: MEMORY.md, topic files, lessons, ADRs. Checks tiered loading, staleness, duplicates, ADR practices. |
 | **Report** | Presents findings grouped by severity with specific fix recommendations |
 | **Approve** | User reviews the report and decides which fixes to apply |
-| **Execute** | Applies approved changes — extracts, merges, renames, indexes |
-| **Verify** | Confirms MEMORY.md under 200 lines, no duplicates, all files indexed |
+| **Execute** | Applies approved changes — extracts, merges, renames, compresses, indexes |
+| **Verify** | Confirms MEMORY.md under 200 lines, no duplicates, all files indexed, no new broken references |
 
 ## What It Audits
 
 | Target | Checks |
 |--------|--------|
-| **MEMORY.md** | Line count, inline content that should be in topic files |
-| **Memory files** | Orphans (not indexed), invalid frontmatter type, stale content |
-| **Project lessons** | Duplicate numbers, content overlap with global lessons |
+| **MEMORY.md** | Line count, inline content, tiered loading violations |
+| **Memory files** | Orphans, invalid frontmatter, broken references, relative dates, codebase contradictions |
+| **Project lessons** | Duplicate numbers, content overlap with global lessons, contradictions |
 | **Global lessons** | Duplicate numbers, content overlap with project lessons |
-| **ADRs** | Duplicate file number prefixes, internal number mismatches, copy/paste duplicates |
+| **Session files** | Age + size for compression, overlapping coverage, archive size |
+| **ADRs** | Duplicate numbers, internal mismatches, missing bidirectional links, missing Confirmation, index file, gap stubs |
 
 ## Comparison
 
@@ -103,17 +116,20 @@ git clone https://github.com/wan-huiyan/memory-hygiene.git ~/.cursor/skills/memo
 |---|---|---|
 | Finding duplicates | Manually read 100+ lessons across 2 files | Automated cross-file scan with specific pairs listed |
 | MEMORY.md bloat | Notice truncation warning, manually restructure | Extracts content to topic files, rewrites index |
-| ADR conflicts | Discover when referencing the wrong ADR | Detects all collisions, proposes renumbering |
-| Orphaned files | Never noticed — invisible to future sessions | Flagged and indexed or removed |
+| Stale memories | Never noticed — wrong recommendations silently | Detects broken references, code contradictions |
+| ADR conflicts | Discover when referencing the wrong ADR | Detects all collisions, checks cross-links |
+| Session files | Accumulate forever, growing memory directory | Flagged for compression when old + verbose |
 | Time to clean up | 30-60 minutes of tedious manual work | 5 minutes (review report + approve) |
 
 ## Limitations
 
-- Does not validate the *content quality* of memories or lessons — only structural issues
-- Does not automatically determine whether a cross-file duplicate should live in global vs project (asks the user)
+- Does not validate the *content quality* of memories or lessons — only structural issues and staleness
+- Does not automatically determine whether a cross-file duplicate should live in global vs project (asks the user, considering their role)
 - Does not renumber all lessons sequentially (that would break external references) — only fixes collisions
-- ADR gap-filling is not automatic (e.g., if 0014 is deleted, 0015 stays as-is)
+- ADR gap-filling is not automatic (suggests stubs, user decides)
 - Stale memory files are flagged but never auto-deleted — user must confirm
+- Codebase contradiction detection requires the project to have package.json/requirements.txt or similar manifests
+- Session compression preserves key outcomes but may lose details the user considers important — always asks first
 
 ## File Format Conventions
 
@@ -122,7 +138,7 @@ The skill follows Claude Code's auto-memory conventions:
 - **MEMORY.md**: No frontmatter. One-line index entries under semantic sections. Target ~40 lines.
 - **Memory files**: YAML frontmatter with `name`, `description`, `type` (user/feedback/project/reference)
 - **Lessons**: `### N. Title` with `**Pattern:**` and `**Rule:**` sections
-- **ADRs**: `NNNN-kebab-case.md` with `# ADR-NNNN: Title` and Status/Context/Decision sections
+- **ADRs**: `NNNN-kebab-case.md` with `# ADR-NNNN: Title`, Status/Context/Decision sections. Recommended: Confirmation section, bidirectional supersedes links, PR back-links.
 
 <details>
 <summary>Quality Checklist</summary>
@@ -130,19 +146,39 @@ The skill follows Claude Code's auto-memory conventions:
 The skill guarantees:
 - [ ] MEMORY.md line count reported and compared against 200-line limit
 - [ ] All `.md` files in the memory directory checked for MEMORY.md index reference
+- [ ] Tiered loading checked — content flagged if at wrong tier (L0/L1/L2)
+- [ ] Staleness scan: broken references, relative dates, codebase contradictions
 - [ ] All lesson `### N.` headings extracted and checked for number collisions
 - [ ] Cross-file comparison between global and project lessons
+- [ ] Session files checked for compression candidates
 - [ ] ADR filename prefixes checked for uniqueness
+- [ ] ADR bidirectional links verified
+- [ ] ADR index file suggested when >10 ADRs
 - [ ] User approval obtained before any destructive changes
 - [ ] Post-fix verification confirming all issues resolved
 
 </details>
 
+## Inspired By
+
+v2.0 was informed by research into AI agent memory management and ADR best practices:
+
+- [OpenViking](https://github.com/volcengine/OpenViking) (ByteDance) — L0/L1/L2 tiered context loading, filesystem paradigm, auto-compression
+- [MADR 4.0](https://adr.github.io/madr/) — Confirmation section, structured pros/cons, YAML frontmatter, status lifecycle
+- [claude-memory-skill](https://github.com/SomeStay07/claude-memory-skill) — Three-question quality gate, codebase contradiction detection
+- [Cog](https://github.com/marciopuga/cog) — Hot/warm/glacier memory tiers, /housekeeping and /reflect skills
+- [Cursor Memory Bank](https://github.com/vanzan01/cursor-memory-bank) — Stability-axis organization pattern
+- [MemOS](https://arxiv.org/abs/2507.03724) (Jul 2025) — Three-tier memory hierarchy formalization
+- [Zep/Graphiti](https://arxiv.org/abs/2501.13956) (Jan 2025) — Temporal knowledge graph, contradiction invalidation
+
+See [docs/research-best-practices.md](docs/research-best-practices.md) for the full research synthesis and [docs/openviking-assessment.md](docs/openviking-assessment.md) for the detailed OpenViking comparison.
+
 ## Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.0.0 | 2026-03-31 | Initial release — full audit + fix workflow for MEMORY.md, lessons, ADRs |
+| 2.0.0 | 2026-03-31 | Tiered loading audit, session compression, staleness detection (broken refs, codebase contradictions, relative dates), ADR best practices (bidirectional links, Confirmation, index file), writing quality gate, cross-project scope review |
+| 1.0.0 | 2026-03-31 | Initial release — audit + fix workflow for MEMORY.md, lessons, ADRs |
 
 ## License
 

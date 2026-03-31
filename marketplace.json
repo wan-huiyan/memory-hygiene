@@ -5,6 +5,6 @@
     "name": "memory-hygiene",
     "source": ".",
     "description": "Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, and ADRs",
-    "version": "1.0.0"
+    "version": "2.0.0"
   }]
 }
