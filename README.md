@@ -1,4 +1,5 @@
 # memory-hygiene
+[![GitHub release](https://img.shields.io/github/v/release/wan-huiyan/memory-hygiene)](https://github.com/wan-huiyan/memory-hygiene/releases) [![Claude Code](https://img.shields.io/badge/Claude_Code-skill-orange)](https://claude.com/claude-code) [![license](https://img.shields.io/github/license/wan-huiyan/memory-hygiene)](LICENSE) [![last commit](https://img.shields.io/github/last-commit/wan-huiyan/memory-hygiene)](https://github.com/wan-huiyan/memory-hygiene/commits)
 
 Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, and ADRs.
 
