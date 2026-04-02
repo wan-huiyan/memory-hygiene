@@ -1,0 +1,10 @@
+{
+  "name": "memory-hygiene",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, and ADRs",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
+  "type": "module"
+}
