@@ -122,6 +122,10 @@ git clone https://github.com/wan-huiyan/memory-hygiene.git ~/.cursor/skills/memo
 | Session files | Accumulate forever, growing memory directory | Flagged for compression when old + verbose |
 | Time to clean up | 30-60 minutes of tedious manual work | 5 minutes (review report + approve) |
 
+## Requirements
+
+- Claude Code v1.0+
+
 ## Limitations
 
 - Does not validate the *content quality* of memories or lessons — only structural issues and staleness
