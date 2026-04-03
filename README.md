@@ -168,13 +168,10 @@ The skill guarantees:
 
 v2.0 was informed by research into AI agent memory management and ADR best practices:
 
-- [OpenViking](https://github.com/volcengine/OpenViking) (ByteDance) — L0/L1/L2 tiered context loading, filesystem paradigm, auto-compression
-- [MADR 4.0](https://adr.github.io/madr/) — Confirmation section, structured pros/cons, YAML frontmatter, status lifecycle
-- [claude-memory-skill](https://github.com/SomeStay07/claude-memory-skill) — Three-question quality gate, codebase contradiction detection
-- [Cog](https://github.com/marciopuga/cog) — Hot/warm/glacier memory tiers, /housekeeping and /reflect skills
-- [Cursor Memory Bank](https://github.com/vanzan01/cursor-memory-bank) — Stability-axis organization pattern
-- [MemOS](https://arxiv.org/abs/2507.03724) (Jul 2025) — Three-tier memory hierarchy formalization
-- [Zep/Graphiti](https://arxiv.org/abs/2501.13956) (Jan 2025) — Temporal knowledge graph, contradiction invalidation
+- [OpenViking](https://github.com/volcengine/OpenViking) (ByteDance) — L0/L1/L2 tiered context loading and filesystem paradigm; directly informs the tiered loading audit (L0/L1/L2 checks)
+- [MADR 4.0](https://adr.github.io/madr/) — Confirmation section, structured pros/cons, YAML frontmatter, status lifecycle; directly informs the ADR best practices checks
+- [claude-memory-skill](https://github.com/SomeStay07/claude-memory-skill) — Three-question quality gate and codebase contradiction detection; both implemented directly in this skill
+- [Zep/Graphiti](https://arxiv.org/abs/2501.13956) (Jan 2025) — Contradiction invalidation via temporal knowledge graph; informs the staleness detection and conflicting-lesson checks
 
 See [docs/research-best-practices.md](docs/research-best-practices.md) for the full research synthesis and [docs/openviking-assessment.md](docs/openviking-assessment.md) for the detailed OpenViking comparison.
 
