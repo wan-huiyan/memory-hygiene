@@ -33,22 +33,64 @@ if (!existsSync(evalSuitePath)) {
       it("eval-suite has no triggers — skipping", { skip: "no triggers array" }, () => {});
     });
   } else {
-    // Find the best SKILL.md to extract trigger keywords from
+    // Find the best SKILL.md to extract trigger keywords from.
+    // Priority:
+    //   1. plugins/<name>/SKILL.md (canonical plugin layout)
+    //   2. plugins/<name>/skills/<skill>/SKILL.md (skill-within-plugin layout)
+    //   3. skills/<name>/SKILL.md (legacy flat-skill layout)
+    //   4. SKILL.md at repo root (legacy single-file layout)
     let skillMdContent = "";
-    const skillsDir = resolve(ROOT, "skills");
-    if (existsSync(skillsDir)) {
+
+    // 1. Canonical plugin layout
+    const pluginsRoot = resolve(ROOT, "plugins");
+    if (existsSync(pluginsRoot)) {
       try {
-        const subdirs = readdirSync(skillsDir, { withFileTypes: true })
-          .filter((d) => d.isDirectory());
-        for (const subdir of subdirs) {
-          const candidate = resolve(skillsDir, subdir.name, "SKILL.md");
-          if (existsSync(candidate)) {
-            skillMdContent = readFileSync(candidate, "utf-8");
+        for (const entry of readdirSync(pluginsRoot, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const direct = resolve(pluginsRoot, entry.name, "SKILL.md");
+          if (existsSync(direct)) {
+            skillMdContent = readFileSync(direct, "utf-8");
             break;
           }
+          // 2. skills-within-plugin layout
+          const skillsDirInPlugin = resolve(pluginsRoot, entry.name, "skills");
+          if (existsSync(skillsDirInPlugin)) {
+            try {
+              const subdirs = readdirSync(skillsDirInPlugin, { withFileTypes: true })
+                .filter((d) => d.isDirectory());
+              for (const subdir of subdirs) {
+                const candidate = resolve(skillsDirInPlugin, subdir.name, "SKILL.md");
+                if (existsSync(candidate)) {
+                  skillMdContent = readFileSync(candidate, "utf-8");
+                  break;
+                }
+              }
+            } catch { /* ignore */ }
+          }
+          if (skillMdContent) break;
         }
       } catch { /* fallback below */ }
     }
+
+    // 3. Legacy flat-skill layout
+    if (!skillMdContent) {
+      const skillsDir = resolve(ROOT, "skills");
+      if (existsSync(skillsDir)) {
+        try {
+          const subdirs = readdirSync(skillsDir, { withFileTypes: true })
+            .filter((d) => d.isDirectory());
+          for (const subdir of subdirs) {
+            const candidate = resolve(skillsDir, subdir.name, "SKILL.md");
+            if (existsSync(candidate)) {
+              skillMdContent = readFileSync(candidate, "utf-8");
+              break;
+            }
+          }
+        } catch { /* fallback below */ }
+      }
+    }
+
+    // 4. Legacy single-file layout
     if (!skillMdContent) {
       const rootSkillMd = resolve(ROOT, "SKILL.md");
       if (existsSync(rootSkillMd)) {

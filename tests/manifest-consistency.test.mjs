@@ -37,8 +37,29 @@ function extractFrontmatter(md) {
 
 const files = {};
 
-const pluginJsonPath = resolve(ROOT, ".claude-plugin/plugin.json");
-if (existsSync(pluginJsonPath)) {
+// The canonical Claude Code plugin layout nests each plugin inside a
+// plugins/<name>/ subdirectory, with its manifest at
+// plugins/<name>/.claude-plugin/plugin.json. We discover the first plugin
+// manifest anywhere under plugins/ and fall back to the legacy
+// .claude-plugin/plugin.json location for backwards compatibility.
+function findPluginJson() {
+  // Prefer the canonical plugins/<name>/.claude-plugin/plugin.json layout
+  const pluginsRoot = resolve(ROOT, "plugins");
+  if (existsSync(pluginsRoot)) {
+    for (const entry of readdirSync(pluginsRoot, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        const candidate = resolve(pluginsRoot, entry.name, ".claude-plugin/plugin.json");
+        if (existsSync(candidate)) return candidate;
+      }
+    }
+  }
+  // Legacy fallback: plugin.json at marketplace root
+  const legacy = resolve(ROOT, ".claude-plugin/plugin.json");
+  return existsSync(legacy) ? legacy : null;
+}
+
+const pluginJsonPath = findPluginJson();
+if (pluginJsonPath && existsSync(pluginJsonPath)) {
   files.pluginJson = JSON.parse(readFileSync(pluginJsonPath, "utf-8"));
 }
 
@@ -57,27 +78,53 @@ if (existsSync(packageJsonPath)) {
   files.packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
 }
 
-const rootSkillMdPath = resolve(ROOT, "SKILL.md");
-if (existsSync(rootSkillMdPath)) {
+// Discover the plugin's SKILL.md. In the canonical layout it lives at
+// plugins/<name>/SKILL.md (next to the plugin's .claude-plugin/plugin.json).
+// Fall back to a root SKILL.md for repos using the legacy flat layout.
+function findRootSkillMd() {
+  // Canonical: plugins/<name>/SKILL.md
+  const pluginsRoot = resolve(ROOT, "plugins");
+  if (existsSync(pluginsRoot)) {
+    for (const entry of readdirSync(pluginsRoot, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        const candidate = resolve(pluginsRoot, entry.name, "SKILL.md");
+        if (existsSync(candidate)) return candidate;
+      }
+    }
+  }
+  // Legacy: SKILL.md at the repo root
+  const legacy = resolve(ROOT, "SKILL.md");
+  return existsSync(legacy) ? legacy : null;
+}
+
+const rootSkillMdPath = findRootSkillMd();
+if (rootSkillMdPath && existsSync(rootSkillMdPath)) {
   files.rootSkillMd = readFileSync(rootSkillMdPath, "utf-8");
 }
 
-// Find nested SKILL.md in skills/ directory
-const skillsDir = resolve(ROOT, "skills");
+// Optional secondary SKILL.md: some plugins also expose a nested
+// plugins/<name>/skills/<skill>/SKILL.md. Skip if the layout doesn't use it.
 let nestedSkillMdPath = null;
-if (existsSync(skillsDir)) {
-  try {
-    const subdirs = readdirSync(skillsDir, { withFileTypes: true })
-      .filter((d) => d.isDirectory());
-    for (const subdir of subdirs) {
-      const candidate = resolve(skillsDir, subdir.name, "SKILL.md");
-      if (existsSync(candidate)) {
-        nestedSkillMdPath = candidate;
-        files.nestedSkillMd = readFileSync(candidate, "utf-8");
-        break;
+const pluginsRootForSkills = resolve(ROOT, "plugins");
+if (existsSync(pluginsRootForSkills)) {
+  for (const pluginEntry of readdirSync(pluginsRootForSkills, { withFileTypes: true })) {
+    if (!pluginEntry.isDirectory()) continue;
+    const skillsDir = resolve(pluginsRootForSkills, pluginEntry.name, "skills");
+    if (!existsSync(skillsDir)) continue;
+    try {
+      const subdirs = readdirSync(skillsDir, { withFileTypes: true })
+        .filter((d) => d.isDirectory());
+      for (const subdir of subdirs) {
+        const candidate = resolve(skillsDir, subdir.name, "SKILL.md");
+        if (existsSync(candidate)) {
+          nestedSkillMdPath = candidate;
+          files.nestedSkillMd = readFileSync(candidate, "utf-8");
+          break;
+        }
       }
-    }
-  } catch { /* no skills/ dir */ }
+    } catch { /* ignore */ }
+    if (nestedSkillMdPath) break;
+  }
 }
 
 // Derive the canonical skill name from plugin.json (authoritative source)
@@ -121,8 +168,12 @@ describe("Manifest consistency", () => {
         assert.ok(plugin.source, "plugin must have source");
       });
 
-      it("name matches plugin.json", () => {
-        assert.equal(files.marketplaceJson.name, SKILL_NAME);
+      it("first plugin entry name matches plugin.json", () => {
+        // The marketplace's own `name` can be anything (e.g. owner-prefixed
+        // "wan-huiyan-causal-impact-campaign"). The real invariant is that the
+        // first plugin entry must match the plugin.json name, because that's
+        // what users type in `claude plugin install <plugin-name>@<marketplace>`.
+        assert.equal(files.marketplaceJson.plugins[0].name, SKILL_NAME);
       });
 
       if (files.marketplaceJson.plugins[0]?.version) {
