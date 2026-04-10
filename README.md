@@ -1,59 +1,68 @@
 # memory-hygiene
 [![GitHub release](https://img.shields.io/github/v/release/wan-huiyan/memory-hygiene)](https://github.com/wan-huiyan/memory-hygiene/releases) [![Claude Code](https://img.shields.io/badge/Claude_Code-skill-orange)](https://claude.com/claude-code) [![license](https://img.shields.io/github/license/wan-huiyan/memory-hygiene)](LICENSE) [![last commit](https://img.shields.io/github/last-commit/wan-huiyan/memory-hygiene)](https://github.com/wan-huiyan/memory-hygiene/commits)
 
-Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, and ADRs.
+Audit and optimize Claude Code's persistent memory system — axioms, MEMORY.md, lessons, memory files, and ADRs — using a research-backed tiered architecture.
 
 ## The Problem
 
-Claude Code's auto-memory system accumulates cruft over time:
+Claude Code's memory system has two failure modes that compound over time:
 
-- **MEMORY.md bloats past 200 lines** and gets silently truncated, losing context
-- **Lesson numbers collide** when multiple sessions add lessons concurrently
-- **ADR numbers duplicate** when decisions are recorded without checking existing files
-- **Memory files become orphaned** — they exist on disk but aren't indexed, so future sessions never see them
-- **Stale memories contradict current code** — "uses library X" when the codebase moved to Y
-- **Cross-file duplicates** waste context window space and can give contradictory guidance
+1. **Truncation**: MEMORY.md exceeding ~200 lines is silently truncated — context lost without warning.
+2. **Lost in the Middle**: Even within the context window, LLMs show >30% accuracy degradation for information in the middle of long contexts ([Liu et al. 2023](https://arxiv.org/abs/2307.03172)). A critical lesson at line 617 of a 1400-line file is effectively invisible.
 
-These problems are tedious to find manually and compound with every session.
+This means **bulk-loading large files into context is counterproductive** — it wastes tokens AND buries the important rules. The solution is a tiered architecture:
+
+```
+T0: Axioms    (~50 lines, always loaded)  — behavioral overrides
+T0: CLAUDE.md (~70 lines, always loaded)  — workflow rules
+T1: MEMORY.md (~40 lines, always loaded)  — index pointers
+T2: Topic files (~50 lines each, on demand) — per-topic context
+T3: Archives  (unlimited, grep only)      — lessons, handoffs, sessions
+```
+
+Without regular maintenance, the system also accumulates: duplicate lesson numbers, orphaned memory files, stale references to renamed code, ADR numbering conflicts, and lessons that should be promoted to axioms but remain buried in archives.
 
 ## Quick Start
 
 ```
-You: my memory files are getting messy, can you clean them up?
+You: my lessons file is 1400 lines and critical rules keep getting ignored
 
-Claude: [Reads MEMORY.md, all memory files, lessons, and ADRs]
-        [Checks tiered loading, staleness, duplicates, ADR best practices]
+Claude: [Reads axioms.md, CLAUDE.md, MEMORY.md, lessons, topic files, ADRs]
+        [Checks tiered loading, axioms health, staleness, duplicates]
         [Produces structured audit report grouped by severity]
 
         ## Memory Hygiene Audit
 
         ### Critical
-        - MEMORY.md is 482 lines (limit: ~200) — truncation is active
-        - 3 orphaned memory files not indexed
+        - axioms.md missing — no behavioral overrides loaded at session start
+        - CLAUDE.md says "read lessons.md" (bulk-load anti-pattern)
+
+        ### Axioms
+        - 6 lessons in T3 qualify for axioms promotion (override default behavior)
+        - CLAUDE.md retrieval strategy: needs update (grep, not bulk-read)
+
+        ### Tiering
+        - 3 items at wrong tier (lesson #68 at line 617 → promote to T0)
+        - lessons.md: 1,406 lines (archive only, never bulk-read)
 
         ### Staleness
         - 2 memory files reference functions that no longer exist
-        - 1 lesson contradicts a newer global lesson
 
         ### Duplicates
         - Global lessons: 5 number collisions
-        - ADRs: 6 number collisions
-
-        ### ADR Best Practices
-        - 4 ADRs missing bidirectional supersedes links
-        - No index file (22 ADRs — recommend creating one)
 
         ### Recommendations
-        - Extract session logs to sessions_archive.md (saves ~300 lines)
+        - Create axioms.md with 15-20 behavioral overrides from lessons.md
+        - Update CLAUDE.md checklist: load axioms.md, grep lessons.md
         - Merge 5 lesson pairs, suffix 5 number collisions
-        - Renumber 7 ADR files, add cross-links
 
         Want me to proceed with all fixes?
 
 You: yes, go ahead
 
-Claude: [Executes fixes, verifies results]
-        Done. MEMORY.md: 482 → 40 lines. All files indexed. No duplicate numbers.
+Claude: [Creates axioms.md, updates CLAUDE.md, fixes duplicates, verifies]
+        Done. axioms.md: 52 lines (18 behavioral overrides). CLAUDE.md: updated
+        to grep-not-read strategy. No duplicate lesson numbers remain.
 ```
 
 ## Installation
@@ -80,9 +89,11 @@ git clone https://github.com/wan-huiyan/memory-hygiene.git ~/.cursor/skills/memo
 
 ## What You Get
 
-- **Structured audit report** grouped by severity (critical / staleness / duplicates / tiering / ADR best practices)
+- **Axioms tier audit** — checks if `axioms.md` exists, flags lessons that qualify for promotion (behavioral overrides that contradict default model behavior)
+- **CLAUDE.md retrieval strategy audit** — flags "read lessons.md" as an anti-pattern, recommends grep-based retrieval
+- **Tiered loading audit** — checks content lives at the right tier (T0 axioms / T1 index / T2 topic / T3 archive)
+- **Structured audit report** grouped by severity (critical / axioms / tiering / staleness / duplicates / ADR best practices)
 - **MEMORY.md slimming** — extracts inline content to topic files, rewrites as a ~40-line index
-- **Tiered loading audit** — checks content lives at the right tier (L0 index / L1 topic / L2 archive)
 - **Staleness detection** — finds broken references, relative dates, codebase contradictions, conflicting lessons
 - **Session compression** — flags old verbose session files for compression, suggests archive splits
 - **Lesson deduplication** — finds number collisions within and across files, merges overlapping content
@@ -94,60 +105,80 @@ git clone https://github.com/wan-huiyan/memory-hygiene.git ~/.cursor/skills/memo
 
 | Phase | What happens |
 |-------|-------------|
-| **Discover** | Reads all persistent state in parallel: MEMORY.md, topic files, lessons, ADRs. Checks tiered loading, staleness, duplicates, ADR practices. |
+| **Discover** | Reads all persistent state in parallel: axioms.md, CLAUDE.md, MEMORY.md, topic files, lessons, ADRs. Checks tiered loading, axioms health, staleness, duplicates, ADR practices. |
 | **Report** | Presents findings grouped by severity with specific fix recommendations |
 | **Approve** | User reviews the report and decides which fixes to apply |
-| **Execute** | Applies approved changes — extracts, merges, renames, compresses, indexes |
-| **Verify** | Confirms MEMORY.md under 200 lines, no duplicates, all files indexed, no new broken references |
+| **Execute** | Applies approved changes — creates axioms, updates CLAUDE.md strategy, extracts, merges, compresses |
+| **Verify** | Confirms axioms.md exists and is <60 lines, MEMORY.md under 200 lines, no duplicates, all files indexed |
 
 ## What It Audits
 
 | Target | Checks |
 |--------|--------|
+| **axioms.md** | Exists, line count (<60), staleness, lessons that should be promoted from T3 |
+| **CLAUDE.md** | Retrieval strategy (grep vs bulk-read), references axioms.md |
 | **MEMORY.md** | Line count, inline content, tiered loading violations |
 | **Memory files** | Orphans, invalid frontmatter, broken references, relative dates, codebase contradictions |
 | **Project lessons** | Duplicate numbers, content overlap with global lessons, contradictions |
-| **Global lessons** | Duplicate numbers, content overlap with project lessons |
+| **Global lessons** | Duplicate numbers, content overlap with project lessons, axiom promotion candidates |
 | **Session files** | Age + size for compression, overlapping coverage, archive size |
 | **ADRs** | Duplicate numbers, internal mismatches, missing bidirectional links, missing Confirmation, index file, gap stubs |
 
+## The Tiered Architecture
+
+| Tier | File | Budget | When loaded | Contains |
+|------|------|--------|-------------|----------|
+| **T0** | `axioms.md` | ~50 lines | Every session | Behavioral overrides that contradict default model behavior |
+| **T0** | `CLAUDE.md` | ~70 lines | Every session | Workflow rules, retrieval strategy |
+| **T1** | `MEMORY.md` | ~40 lines | Every session | One-line pointers to topic files |
+| **T2** | `feedback_*.md`, `reference_*.md` | ~50 lines each | On demand | Workflow reminders, key references |
+| **T3** | `lessons.md`, `sessions_archive.md`, `handoffs/` | Unlimited | **grep only** | Full history, all lessons, session logs |
+
+**Axioms promotion criteria**: A lesson qualifies for T0 if you'd get it wrong by default without the lesson. Examples:
+- "Session history is retrievable from JSONL files" (contradicts trained-in belief)
+- "Bash tool PATH is stripped" (contradicts assumption that `which` works)
+- "Background agents can't write" (contradicts expectation of full tool access)
+
+If it's just a good practice you'd likely follow anyway, it stays in T3.
+
 ## Comparison
 
-| | Without skill | With memory-hygiene |
+| | Without skill | With memory-hygiene v2.1 |
 |---|---|---|
+| Critical lessons ignored | Buried at line 617 of 1400-line file — "Lost in the Middle" | Promoted to axioms.md (52 lines, always loaded, front-positioned) |
+| CLAUDE.md strategy | "Read lessons.md" — wastes tokens, buries signal | "Load axioms, grep archives" — high-signal context |
 | Finding duplicates | Manually read 100+ lessons across 2 files | Automated cross-file scan with specific pairs listed |
 | MEMORY.md bloat | Notice truncation warning, manually restructure | Extracts content to topic files, rewrites index |
 | Stale memories | Never noticed — wrong recommendations silently | Detects broken references, code contradictions |
 | ADR conflicts | Discover when referencing the wrong ADR | Detects all collisions, checks cross-links |
-| Session files | Accumulate forever, growing memory directory | Flagged for compression when old + verbose |
 | Time to clean up | 30-60 minutes of tedious manual work | 5 minutes (review report + approve) |
 
 ## Limitations
 
 - Does not validate the *content quality* of memories or lessons — only structural issues and staleness
-- Does not automatically determine whether a cross-file duplicate should live in global vs project (asks the user, considering their role)
+- Does not automatically determine whether a cross-file duplicate should live in global vs project (asks the user)
 - Does not renumber all lessons sequentially (that would break external references) — only fixes collisions
-- ADR gap-filling is not automatic (suggests stubs, user decides)
+- Axioms promotion candidates are flagged but require user approval — never auto-promotes
 - Stale memory files are flagged but never auto-deleted — user must confirm
-- Codebase contradiction detection requires the project to have package.json/requirements.txt or similar manifests
-- Session compression preserves key outcomes but may lose details the user considers important — always asks first
+- Codebase contradiction detection requires package.json/requirements.txt or similar manifests
 
 ## File Format Conventions
 
-The skill follows Claude Code's auto-memory conventions:
-
+- **axioms.md**: Short behavioral overrides grouped by theme. Each rule references the source lesson number. Target ~50 lines.
 - **MEMORY.md**: No frontmatter. One-line index entries under semantic sections. Target ~40 lines.
 - **Memory files**: YAML frontmatter with `name`, `description`, `type` (user/feedback/project/reference)
 - **Lessons**: `### N. Title` with `**Pattern:**` and `**Rule:**` sections
-- **ADRs**: `NNNN-kebab-case.md` with `# ADR-NNNN: Title`, Status/Context/Decision sections. Recommended: Confirmation section, bidirectional supersedes links, PR back-links.
+- **ADRs**: `NNNN-kebab-case.md` with `# ADR-NNNN: Title`, Status/Context/Decision sections
 
 <details>
 <summary>Quality Checklist</summary>
 
 The skill guarantees:
+- [ ] axioms.md exists, line count reported, promotion candidates identified
+- [ ] CLAUDE.md retrieval strategy audited (grep vs bulk-read)
 - [ ] MEMORY.md line count reported and compared against 200-line limit
 - [ ] All `.md` files in the memory directory checked for MEMORY.md index reference
-- [ ] Tiered loading checked — content flagged if at wrong tier (L0/L1/L2)
+- [ ] Tiered loading checked — content flagged if at wrong tier (T0/T1/T2/T3)
 - [ ] Staleness scan: broken references, relative dates, codebase contradictions
 - [ ] All lesson `### N.` headings extracted and checked for number collisions
 - [ ] Cross-file comparison between global and project lessons
@@ -192,8 +223,8 @@ See [docs/research-best-practices.md](docs/research-best-practices.md) for the f
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 2.1.0 | 2026-04-10 | Axioms tier (T0 behavioral overrides), promotion criteria, CLAUDE.md retrieval strategy audit, "Lost in the Middle" awareness, academic foundations (Liu et al. 2023, Miller, Cowan, Sweller, Lewis et al., Nonaka & Takeuchi, Walsh & Ungson, Nygard) |
-| 2.0.0 | 2026-03-31 | Tiered loading audit, session compression, staleness detection (broken refs, codebase contradictions, relative dates), ADR best practices (bidirectional links, Confirmation, index file), writing quality gate, cross-project scope review |
+| 2.1.0 | 2026-04-10 | Axioms tier (T0 behavioral overrides), promotion criteria, CLAUDE.md retrieval strategy audit, "Lost in the Middle" awareness, academic foundations |
+| 2.0.0 | 2026-03-31 | Tiered loading audit, session compression, staleness detection, ADR best practices, writing quality gate, cross-project scope review |
 | 1.0.0 | 2026-03-31 | Initial release — audit + fix workflow for MEMORY.md, lessons, ADRs |
 
 ## License
