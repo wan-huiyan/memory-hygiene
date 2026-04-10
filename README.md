@@ -122,10 +122,6 @@ git clone https://github.com/wan-huiyan/memory-hygiene.git ~/.cursor/skills/memo
 | Session files | Accumulate forever, growing memory directory | Flagged for compression when old + verbose |
 | Time to clean up | 30-60 minutes of tedious manual work | 5 minutes (review report + approve) |
 
-## Requirements
-
-- Claude Code v1.0+
-
 ## Limitations
 
 - Does not validate the *content quality* of memories or lessons — only structural issues and staleness
@@ -166,12 +162,29 @@ The skill guarantees:
 
 ## Inspired By
 
-v2.0 was informed by research into AI agent memory management and ADR best practices:
+### Academic foundations (v2.1)
 
-- [OpenViking](https://github.com/volcengine/OpenViking) (ByteDance) — L0/L1/L2 tiered context loading and filesystem paradigm; directly informs the tiered loading audit (L0/L1/L2 checks)
-- [MADR 4.0](https://adr.github.io/madr/) — Confirmation section, structured pros/cons, YAML frontmatter, status lifecycle; directly informs the ADR best practices checks
-- [claude-memory-skill](https://github.com/SomeStay07/claude-memory-skill) — Three-question quality gate and codebase contradiction detection; both implemented directly in this skill
-- [Zep/Graphiti](https://arxiv.org/abs/2501.13956) (Jan 2025) — Contradiction invalidation via temporal knowledge graph; informs the staleness detection and conflicting-lesson checks
+The tiered architecture and axioms promotion system are grounded in:
+
+- **Liu et al. (2023)** ["Lost in the Middle"](https://arxiv.org/abs/2307.03172) — >30% accuracy drop for info in the middle of long LLM contexts. Directly motivates keeping axioms short and front-loaded.
+- **Miller (1956)** "The Magical Number Seven" — Working memory holds 7±2 chunks. Motivates the ~50-line T0 budget.
+- **Cowan (2001)** "The Magical Number 4" — True focus-of-attention is ~4 chunks. Strengthens case for ruthlessly small T0.
+- **Sweller (1994)** Cognitive Load Theory — Bulk-loading irrelevant material = extraneous cognitive load.
+- **Lewis et al. (2020)** [RAG](https://arxiv.org/abs/2005.11401) — Retrieval + parametric outperforms pure parametric. T3 grep = lightweight deterministic RAG.
+- **Xu et al. (2024)** ["RAG or Long-Context LLMs?"](https://arxiv.org/abs/2407.16833) — Hybrid approach matches long-context at fraction of token cost.
+- **Nonaka & Takeuchi (1995)** SECI model — T0 axioms = internalized knowledge; T3 archive = externalized knowledge.
+- **Walsh & Ungson (1991)** Organizational Memory — T0 = automatic retrieval; T3 = controlled retrieval.
+- **Nygard (2011)** [ADRs](https://www.cognitect.com/blog/2011/11/15/documenting-architecture-decisions) — "No one reads large documents." Axioms = ADRs for AI behavior.
+
+### AI agent memory systems (v2.0)
+
+- [OpenViking](https://github.com/volcengine/OpenViking) (ByteDance) — L0/L1/L2 tiered context loading, filesystem paradigm, auto-compression
+- [MADR 4.0](https://adr.github.io/madr/) — Confirmation section, structured pros/cons, YAML frontmatter, status lifecycle
+- [claude-memory-skill](https://github.com/SomeStay07/claude-memory-skill) — Three-question quality gate, codebase contradiction detection
+- [Cog](https://github.com/marciopuga/cog) — Hot/warm/glacier memory tiers, /housekeeping and /reflect skills
+- [Cursor Memory Bank](https://github.com/vanzan01/cursor-memory-bank) — Stability-axis organization pattern
+- [MemOS](https://arxiv.org/abs/2507.03724) (Jul 2025) — Three-tier memory hierarchy formalization
+- [Zep/Graphiti](https://arxiv.org/abs/2501.13956) (Jan 2025) — Temporal knowledge graph, contradiction invalidation
 
 See [docs/research-best-practices.md](docs/research-best-practices.md) for the full research synthesis and [docs/openviking-assessment.md](docs/openviking-assessment.md) for the detailed OpenViking comparison.
 
@@ -179,6 +192,7 @@ See [docs/research-best-practices.md](docs/research-best-practices.md) for the f
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.1.0 | 2026-04-10 | Axioms tier (T0 behavioral overrides), promotion criteria, CLAUDE.md retrieval strategy audit, "Lost in the Middle" awareness, academic foundations (Liu et al. 2023, Miller, Cowan, Sweller, Lewis et al., Nonaka & Takeuchi, Walsh & Ungson, Nygard) |
 | 2.0.0 | 2026-03-31 | Tiered loading audit, session compression, staleness detection (broken refs, codebase contradictions, relative dates), ADR best practices (bidirectional links, Confirmation, index file), writing quality gate, cross-project scope review |
 | 1.0.0 | 2026-03-31 | Initial release — audit + fix workflow for MEMORY.md, lessons, ADRs |
 
