@@ -3,15 +3,20 @@ name: memory-hygiene
 description: "Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, and ADRs. Use this skill when: (1) the user asks to clean up, audit, or review their memory/lessons/ADRs, (2) MEMORY.md is approaching or exceeding the 200-line limit, (3) lesson files have grown large and may contain duplicates, (4) you notice ADR numbering conflicts, (5) memory files seem stale or contradicted by current code, or (6) the user says things like 'my memory is getting messy', 'clean up my lessons', 'deduplicate', 'review ADRs', 'memory audit'. Also proactively suggest running this after 10+ sessions on a project, or when MEMORY.md triggers a truncation warning."
 ---
 
-# Memory Hygiene v2.0 — Audit & Cleanup
+# Memory Hygiene v2.1 — Audit & Cleanup
 
-This skill audits Claude Code's persistent knowledge stores (MEMORY.md, memory topic files, lessons, and ADRs) for structural problems that degrade future session quality. It produces a structured report, gets user approval, then executes fixes.
+This skill audits Claude Code's persistent knowledge stores (axioms, MEMORY.md, memory topic files, lessons, and ADRs) for structural problems that degrade future session quality. It produces a structured report, gets user approval, then executes fixes.
 
-v2.0 adds tiered loading awareness, session compression, staleness detection, ADR best practices checks, a memory quality gate, and cross-project scope review — informed by research into [OpenViking](https://github.com/volcengine/OpenViking), [MADR 4.0](https://adr.github.io/madr/), [claude-memory-skill](https://github.com/SomeStay07/claude-memory-skill), and [Cog](https://github.com/marciopuga/cog). See `docs/research-best-practices.md` for full sources.
+v2.1 adds the axioms tier, promotion criteria, CLAUDE.md retrieval strategy audit, and "Lost in the Middle" awareness — backed by research from cognitive science (Miller 1956, Cowan 2001, Sweller 1994), LLM research (Liu et al. 2023 "Lost in the Middle", Lewis et al. 2020 RAG), and knowledge management theory (Nonaka & Takeuchi 1995, Walsh & Ungson 1991). See `docs/research-best-practices.md` for full sources.
 
 ## Why this matters
 
-Claude Code loads MEMORY.md at the start of every conversation. When it exceeds ~200 lines / 25KB, content is silently truncated — the system loses context without warning. Duplicate lessons waste context window space and can give contradictory guidance. Stale memories that contradict current code lead to wrong recommendations. These problems compound over time.
+Claude Code loads MEMORY.md and CLAUDE.md at the start of every conversation. Two failure modes degrade session quality:
+
+1. **Truncation**: MEMORY.md exceeding ~200 lines / 25KB is silently truncated — context lost without warning.
+2. **Lost in the Middle** (Liu et al. 2023): Even within the context window, LLMs show >30% accuracy degradation for information positioned in the middle of long contexts due to U-shaped positional attention bias. A critical lesson at line 617 of a 1400-line file is effectively invisible — not because it was truncated, but because attention drops off.
+
+This means bulk-loading large files (lessons.md, session archives) into context is worse than useless — it wastes tokens AND buries the important rules. The solution is a tiered architecture where only high-signal behavioral overrides occupy always-loaded context, and everything else is retrieved on demand via grep.
 
 ## When to run
 
@@ -33,20 +38,39 @@ Read all persistent state files. Use parallel reads where possible.
 #### 1a. MEMORY.md
 Read the full index. Note total line count and whether it contains inline content (session logs, architecture sections, decision tables) that should live in topic files.
 
-#### 1b. Tiered loading check (inspired by [OpenViking](https://github.com/volcengine/OpenViking) L0/L1/L2)
+#### 1b. Tiered loading check
 
-Claude Code's memory is implicitly tiered. Check that content lives at the right tier:
+Claude Code's memory should follow a tiered architecture. The key insight (backed by Liu et al. 2023 "Lost in the Middle") is that bulk-loading large files into context is counterproductive — information in the middle of long contexts is effectively ignored even when not truncated. Check that content lives at the right tier:
 
-| Tier | What | Budget | Contains |
-|------|------|--------|----------|
-| **L0: Index** | MEMORY.md | ~40 lines, always loaded | One-line pointers only |
-| **L1: Topic files** | feedback_*.md, reference_*.md | ~50 lines each, loaded on demand | Workflow reminders, key references |
-| **L2: Archives** | sessions_archive.md, lessons.md | Unlimited, loaded only when explicitly needed | Full history, all lessons |
+| Tier | What | Budget | Loaded when | Contains |
+|------|------|--------|-------------|----------|
+| **T0: Axioms** | `axioms.md` | ~50 lines, always loaded | Every session start | Behavioral overrides that contradict default model behavior |
+| **T0: Config** | `CLAUDE.md` | ~70 lines, always loaded | Every session start | Workflow rules, retrieval strategy |
+| **T1: Index** | `MEMORY.md` | ~40 lines, always loaded | Every session start | One-line pointers to topic files |
+| **T2: Topic files** | feedback_*.md, reference_*.md | ~50 lines each | Loaded on demand | Workflow reminders, key references |
+| **T3: Archives** | lessons.md, sessions_archive.md, handoffs/ | Unlimited | **grep only, never bulk-read** | Full history, all lessons, session logs |
+
+**Axioms promotion criteria**: A lesson qualifies for `axioms.md` if: "I would get this wrong by default without the lesson." Examples:
+- "Session history is retrievable from JSONL files" (contradicts trained-in belief that conversations are ephemeral)
+- "Bash tool PATH is stripped" (contradicts assumption that `which` is reliable)
+- "Background agents can't write" (contradicts expectation that agents have full tool access)
+
+If the lesson is just a good practice that I'd likely follow anyway, it stays in T3.
+
+**CLAUDE.md retrieval strategy audit**: Check that the session start checklist says:
+- Load `axioms.md` (not bulk-read `lessons.md`)
+- Read project `MEMORY.md` index
+- grep T3 archives for keywords relevant to the current task
+- grep before claiming something is impossible
+
+Flag if CLAUDE.md still says "read lessons.md" — that's the anti-pattern this tier system replaces.
 
 Flag content at the wrong tier:
-- A 500-line entry in a topic file → should be L2 (archive)
-- A critical workflow reminder buried in sessions_archive → should be promoted to L0 (MEMORY.md pointer) or L1 (its own topic file)
-- Inline session logs in MEMORY.md → should be extracted to L2
+- A behavioral override buried in lessons.md line 600+ → should be promoted to T0 (axioms.md)
+- A 500-line entry in a topic file → should be T3 (archive)
+- A critical workflow reminder buried in sessions_archive → should be promoted to T1 (MEMORY.md pointer) or T2 (its own topic file)
+- Inline session logs in MEMORY.md → should be extracted to T3
+- CLAUDE.md saying "read lessons.md" → should be "grep lessons.md"
 
 #### 1c. Memory topic files
 Glob `~/.claude/projects/<current-project>/memory/*.md` (excluding MEMORY.md and lessons.md). For each file, read the frontmatter (name, description, type). Check:
@@ -99,6 +123,8 @@ Present findings as a structured audit report. Group by severity:
 ### Critical (breaks functionality)
 - MEMORY.md is N lines (limit: ~200) — truncation is active
 - N orphaned memory files not indexed in MEMORY.md
+- axioms.md missing or not referenced from CLAUDE.md session start checklist
+- CLAUDE.md says "read lessons.md" instead of "grep lessons.md" (bulk-load anti-pattern)
 
 ### Staleness
 - N memory files with broken references (list specific references)
@@ -114,8 +140,15 @@ Present findings as a structured audit report. Group by severity:
 
 ### Tiering
 - N items at wrong tier (list with current/recommended tier)
+- N lessons in lessons.md that qualify for axioms promotion (behavioral overrides)
 - N session files flagged for compression
 - sessions_archive.md: N lines (suggest split if >200)
+
+### Axioms
+- axioms.md: exists/missing, N lines (target: <60)
+- N axioms that may be stale (referenced function/path no longer exists)
+- N lessons in T3 that should be promoted (override default model behavior)
+- CLAUDE.md retrieval strategy: correct/needs update
 
 ### ADR Best Practices
 - N missing bidirectional links
