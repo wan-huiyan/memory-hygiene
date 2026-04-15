@@ -1,7 +1,7 @@
 # memory-hygiene
 [![GitHub release](https://img.shields.io/github/v/release/wan-huiyan/memory-hygiene)](https://github.com/wan-huiyan/memory-hygiene/releases) [![Claude Code](https://img.shields.io/badge/Claude_Code-skill-orange)](https://claude.com/claude-code) [![license](https://img.shields.io/github/license/wan-huiyan/memory-hygiene)](LICENSE) [![last commit](https://img.shields.io/github/last-commit/wan-huiyan/memory-hygiene)](https://github.com/wan-huiyan/memory-hygiene/commits)
 
-Audit and optimize Claude Code's persistent memory system — axioms, MEMORY.md, lessons, memory files, and ADRs — using a research-backed tiered architecture.
+Audit and optimize Claude Code's persistent memory system — axioms, phase templates, MEMORY.md, lessons, memory files, and ADRs — using a research-backed tiered architecture with promotion/demotion lifecycle and agency-aware staleness detection.
 
 ## The Problem
 
@@ -13,12 +13,15 @@ Claude Code's memory system has two failure modes that compound over time:
 This means **bulk-loading large files into context is counterproductive** — it wastes tokens AND buries the important rules. The solution is a tiered architecture:
 
 ```
-T0: Axioms    (~50 lines, always loaded)  — behavioral overrides
-T0: CLAUDE.md (~70 lines, always loaded)  — workflow rules
-T1: MEMORY.md (~40 lines, always loaded)  — index pointers
-T2: Topic files (~50 lines each, on demand) — per-topic context
-T3: Archives  (unlimited, grep only)      — lessons, handoffs, sessions
+T0:   Axioms    (≤12 items, always loaded)     — Universal + Role behavioral overrides
+T0:   CLAUDE.md (~70 lines, always loaded)     — workflow rules, retrieval strategy
+T1:   MEMORY.md (~40-80 lines, always loaded)  — index pointers
+T1.5: .claude/rules/ (auto on file match)      — phase-specific rules with paths: globs
+T2:   Topic files (~50 lines each, on demand)  — per-topic context
+T3:   Archives  (unlimited, grep only)         — lessons, handoffs, sessions
 ```
+
+v3.0 adds **phase templates** (`~/.claude/templates/phase_*.md`) — reusable rule sets that auto-activate when you touch matching files. Rules that are only relevant during specific project phases (data sourcing, deliverables, code review) don't waste attention in every session — they load precisely when needed.
 
 Without regular maintenance, the system also accumulates: duplicate lesson numbers, orphaned memory files, stale references to renamed code, ADR numbering conflicts, and lessons that should be promoted to axioms but remain buried in archives.
 
@@ -89,11 +92,14 @@ git clone https://github.com/wan-huiyan/memory-hygiene.git ~/.cursor/skills/memo
 
 ## What You Get
 
-- **Axioms tier audit** — checks if `axioms.md` exists, flags lessons that qualify for promotion (behavioral overrides that contradict default model behavior)
+- **Axiom management** — classifies each axiom as Universal/Role/Phase, enforces 12-item Cowan cap, flags demotion and merge candidates
+- **Phase template system** — audits `~/.claude/templates/` and `.claude/rules/`, creates missing templates, migrates Phase axioms to path-scoped rules
+- **Promotion/demotion lifecycle** — two-incident rule for promotion (Google SRE), three demotion triggers (dormant/caught by tooling/subsumable)
+- **Agency-aware staleness** — detects user work pattern from `user_role.md`; measures staleness across project portfolio (not just current project) for consultants/agency workers
 - **CLAUDE.md retrieval strategy audit** — flags "read lessons.md" as an anti-pattern, recommends grep-based retrieval
-- **Tiered loading audit** — checks content lives at the right tier (T0 axioms / T1 index / T2 topic / T3 archive)
-- **Structured audit report** grouped by severity (critical / axioms / tiering / staleness / duplicates / ADR best practices)
-- **MEMORY.md slimming** — extracts inline content to topic files, rewrites as a ~40-line index
+- **Tiered loading audit** — checks content lives at the right tier (T0/T1/T1.5/T2/T3)
+- **Structured audit report** grouped by severity (critical / axioms / phase templates / tiering / staleness / duplicates / ADR best practices)
+- **MEMORY.md slimming** — extracts inline content to topic files, rewrites as a ~40-80 line index
 - **Staleness detection** — finds broken references, relative dates, codebase contradictions, conflicting lessons
 - **Session compression** — flags old verbose session files for compression, suggests archive splits
 - **Lesson deduplication** — finds number collisions within and across files, merges overlapping content
@@ -128,29 +134,70 @@ git clone https://github.com/wan-huiyan/memory-hygiene.git ~/.cursor/skills/memo
 
 | Tier | File | Budget | When loaded | Contains |
 |------|------|--------|-------------|----------|
-| **T0** | `axioms.md` | ~50 lines | Every session | Behavioral overrides that contradict default model behavior |
+| **T0** | `axioms.md` | **≤12 items** (Cowan cap) | Every session | Universal + Role behavioral overrides |
 | **T0** | `CLAUDE.md` | ~70 lines | Every session | Workflow rules, retrieval strategy |
-| **T1** | `MEMORY.md` | ~40 lines | Every session | One-line pointers to topic files |
+| **T1** | `MEMORY.md` | ~40-80 lines (hard limit: 200 / 25KB) | Every session | One-line pointers to topic files |
+| **T1.5** | `.claude/rules/phase-*.md` | ~5 rules per file | **Auto on file match** | Phase-specific rules with `paths:` YAML frontmatter |
 | **T2** | `feedback_*.md`, `reference_*.md` | ~50 lines each | On demand | Workflow reminders, key references |
 | **T3** | `lessons.md`, `sessions_archive.md`, `handoffs/` | Unlimited | **grep only** | Full history, all lessons, session logs |
 
-**Axioms promotion criteria**: A lesson qualifies for T0 if you'd get it wrong by default without the lesson. Examples:
-- "Session history is retrievable from JSONL files" (contradicts trained-in belief)
-- "Bash tool PATH is stripped" (contradicts assumption that `which` works)
-- "Background agents can't write" (contradicts expectation of full tool access)
+### Axiom Classification (three categories)
 
-If it's just a good practice you'd likely follow anyway, it stays in T3.
+| Category | Definition | Location | Example |
+|----------|-----------|----------|---------|
+| **Universal** | Applies regardless of project or phase | `axioms.md` (always) | "Never fabricate data", "Bash PATH is stripped" |
+| **Role** | Applies to all projects for this user's role | `axioms.md` (until role changes) | "No jargon in client materials" (agency DS) |
+| **Phase** | Only relevant during specific project phases | **Phase templates** (auto on file match) | "Current-vs-planned boundary" (data sourcing) |
+
+### Promotion/Demotion Lifecycle
+
+```
+lessons.md (T3, grep only)
+    ↓ Fires in 2+ sessions without being queried (two-incident rule)
+axioms.md (T0, ≤12 items)  ←── Promotion criteria: default wrong + silent failure + recent
+    ↓ Dormant 20+ sessions OR caught by tooling OR subsumable
+    ├── DEMOTE → back to lessons.md (T3)
+    └── PHASE  → ~/.claude/templates/phase_*.md → .claude/rules/ (T1.5)
+```
+
+**Capacity enforcement**: Hard cap of 12 items (Cowan 2001: 3-4 chunks × 3 items/chunk). Every new promotion past 12 requires a demotion or merge.
+
+**Agency-aware staleness**: For consultants/agency workers who cycle through projects, staleness is measured across the user's portfolio (calendar time), not within one project (session count). A rule dormant in THIS project may fire immediately in the next client engagement.
+
+### Phase Templates
+
+Global templates at `~/.claude/templates/` — reusable across all client projects:
+
+| Template | Key rules | Auto-trigger paths |
+|----------|-----------|-------------------|
+| `phase_onboarding.md` | "Building on, not replacing"; learn terminology | Manual `@import` |
+| `phase_data_sourcing.md` | Current-vs-planned; provenance; spot-check | `data/**`, `scripts/fetch_*` |
+| `phase_analysis.md` | Permutation before reporting; effect sizes | `webapp/ci/**`, `scripts/submit_*` |
+| `phase_deliverables.md` | No jargon; probability framing; consistency | `deliverables/**`, `docs/client_*` |
+| `phase_code_review.md` | Fix one + grep siblings; functional tests | All code files during review |
+
+**New project setup:**
+```bash
+# Option A: Path-scoped (automatic)
+cp ~/.claude/templates/phase_*.md new-project/.claude/rules/
+# Edit paths: in each file to match project structure
+
+# Option B: @import (manual swap)
+# In project CLAUDE.md:
+@~/.claude/templates/phase_data_sourcing.md
+```
 
 ## Comparison
 
-| | Without skill | With memory-hygiene v2.1 |
+| | Without skill | With memory-hygiene v3.0 |
 |---|---|---|
-| Critical lessons ignored | Buried at line 617 of 1400-line file — "Lost in the Middle" | Promoted to axioms.md (52 lines, always loaded, front-positioned) |
+| Critical lessons ignored | Buried at line 617 of 1400-line file | Promoted to axioms (≤12, always loaded) or phase templates (auto on file match) |
+| Phase-specific rules | Either always loaded (wastes attention) or demoted (gets missed) | Auto-activate via `.claude/rules/` path globs — zero attention cost when irrelevant |
+| Axiom growth | Unbounded — grows until attention degrades | 12-item Cowan cap with structured promotion/demotion lifecycle |
+| Agency/multi-project | Rules dormant in one project get wrongly demoted | Staleness measured across portfolio, Phase rules preserved for next engagement |
 | CLAUDE.md strategy | "Read lessons.md" — wastes tokens, buries signal | "Load axioms, grep archives" — high-signal context |
-| Finding duplicates | Manually read 100+ lessons across 2 files | Automated cross-file scan with specific pairs listed |
 | MEMORY.md bloat | Notice truncation warning, manually restructure | Extracts content to topic files, rewrites index |
 | Stale memories | Never noticed — wrong recommendations silently | Detects broken references, code contradictions |
-| ADR conflicts | Discover when referencing the wrong ADR | Detects all collisions, checks cross-links |
 | Time to clean up | 30-60 minutes of tedious manual work | 5 minutes (review report + approve) |
 
 ## Limitations
@@ -193,19 +240,20 @@ The skill guarantees:
 
 ## Inspired By
 
-### Academic foundations (v2.1)
+### Academic foundations (v3.0)
 
-The tiered architecture and axioms promotion system are grounded in:
+The tiered architecture, phase templates, and promotion/demotion lifecycle are grounded in:
 
-- **Liu et al. (2023)** ["Lost in the Middle"](https://arxiv.org/abs/2307.03172) — >30% accuracy drop for info in the middle of long LLM contexts. Directly motivates keeping axioms short and front-loaded.
-- **Miller (1956)** "The Magical Number Seven" — Working memory holds 7±2 chunks. Motivates the ~50-line T0 budget.
-- **Cowan (2001)** "The Magical Number 4" — True focus-of-attention is ~4 chunks. Strengthens case for ruthlessly small T0.
-- **Sweller (1994)** Cognitive Load Theory — Bulk-loading irrelevant material = extraneous cognitive load.
-- **Lewis et al. (2020)** [RAG](https://arxiv.org/abs/2005.11401) — Retrieval + parametric outperforms pure parametric. T3 grep = lightweight deterministic RAG.
-- **Xu et al. (2024)** ["RAG or Long-Context LLMs?"](https://arxiv.org/abs/2407.16833) — Hybrid approach matches long-context at fraction of token cost.
-- **Nonaka & Takeuchi (1995)** SECI model — T0 axioms = internalized knowledge; T3 archive = externalized knowledge.
-- **Walsh & Ungson (1991)** Organizational Memory — T0 = automatic retrieval; T3 = controlled retrieval.
-- **Nygard (2011)** [ADRs](https://www.cognitect.com/blog/2011/11/15/documenting-architecture-decisions) — "No one reads large documents." Axioms = ADRs for AI behavior.
+- **Liu et al. (2024)** ["Lost in the Middle"](https://arxiv.org/abs/2307.03172) — ~20pp accuracy drop for mid-context info (TACL, Stanford/Meta AI). Motivates small T0.
+- **EMNLP 2025** ["Context Length Alone Hurts"](https://arxiv.org/abs/2510.05381) — Performance degrades even with perfect retrieval. Confirms the problem persists in 2025.
+- **Chroma (2025)** ["Context Rot"](https://research.trychroma.com/context-rot) — 18 production models all degrade with context length. Breaking point is unpredictable.
+- **Cowan (2001)** "The Magical Number 4" — Working memory is ~4 chunks → 12-item axiom cap (3 items × 4 chunks).
+- **Sweller (1988)** Cognitive Load Theory — Extraneous load competes with task-relevant processing.
+- **Lewis et al. (2020)** [RAG](https://arxiv.org/abs/2005.11401) — Selective retrieval outperforms preloading. T3 grep = lightweight RAG.
+- **Lunney & Lueder (2017)** [Google SRE Postmortems](https://www.usenix.org/publications/login/spring2017/lunney) — Two-incident rule for runbook promotion; "would it recur silently?" demotion test.
+- **Fiedler et al. (2018)** [Intentional Forgetting](https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2018.00051/full) — Demotion = removing retrieval cues, not deletion.
+- **Markus (2001)** "Toward a Theory of Knowledge Reuse" — Push vs pull: pure push risks overload. Pull surfaces knowledge at moment of need.
+- **Nygard (2011)** [ADRs](https://www.cognitect.com/blog/2011/11/15/documenting-architecture-decisions) — "No one reads large documents."
 
 ### AI agent memory systems (v2.0)
 
@@ -223,6 +271,7 @@ See [docs/research-best-practices.md](docs/research-best-practices.md) for the f
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.0.0 | 2026-04-15 | Phase template system (T1.5 path-scoped rules, `~/.claude/templates/`), three-category axiom classification (Universal/Role/Phase), 12-item Cowan cap with structured promotion/demotion lifecycle, agency-aware staleness detection, 2025 research updates (EMNLP, Chroma Context Rot) |
 | 2.1.0 | 2026-04-10 | Axioms tier (T0 behavioral overrides), promotion criteria, CLAUDE.md retrieval strategy audit, "Lost in the Middle" awareness, academic foundations |
 | 2.0.0 | 2026-03-31 | Tiered loading audit, session compression, staleness detection, ADR best practices, writing quality gate, cross-project scope review |
 | 1.0.0 | 2026-03-31 | Initial release — audit + fix workflow for MEMORY.md, lessons, ADRs |

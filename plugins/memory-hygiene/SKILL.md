@@ -3,11 +3,11 @@ name: memory-hygiene
 description: "Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, and ADRs. Use this skill when: (1) the user asks to clean up, audit, or review their memory/lessons/ADRs, (2) MEMORY.md is approaching or exceeding the 200-line limit, (3) lesson files have grown large and may contain duplicates, (4) you notice ADR numbering conflicts, (5) memory files seem stale or contradicted by current code, or (6) the user says things like 'my memory is getting messy', 'clean up my lessons', 'deduplicate', 'review ADRs', 'memory audit'. Also proactively suggest running this after 10+ sessions on a project, or when MEMORY.md triggers a truncation warning."
 ---
 
-# Memory Hygiene v2.1 — Audit & Cleanup
+# Memory Hygiene v3.0 — Audit & Cleanup
 
-This skill audits Claude Code's persistent knowledge stores (axioms, MEMORY.md, memory topic files, lessons, and ADRs) for structural problems that degrade future session quality. It produces a structured report, gets user approval, then executes fixes.
+This skill audits Claude Code's persistent knowledge stores (axioms, MEMORY.md, memory topic files, lessons, phase templates, and ADRs) for structural problems that degrade future session quality. It produces a structured report, gets user approval, then executes fixes.
 
-v2.1 adds the axioms tier, promotion criteria, CLAUDE.md retrieval strategy audit, and "Lost in the Middle" awareness — backed by research from cognitive science (Miller 1956, Cowan 2001, Sweller 1994), LLM research (Liu et al. 2023 "Lost in the Middle", Lewis et al. 2020 RAG), and knowledge management theory (Nonaka & Takeuchi 1995, Walsh & Ungson 1991). See `docs/research-best-practices.md` for full sources.
+v3.0 adds phase template management, three-category axiom classification (Universal/Role/Phase), capacity ceiling enforcement, agency-aware staleness detection, and path-scoped rule auditing. Backed by research from cognitive science (Cowan 2001), LLM research (Liu et al. 2024 TACL, EMNLP 2025, Chroma Context Rot 2025), KM theory (Markus 2001), and SRE practice (Google SRE post-mortem framework). Full sources in `~/Documents/memory_hygiene_guide.md`.
 
 ## Why this matters
 
@@ -44,18 +44,51 @@ Claude Code's memory should follow a tiered architecture. The key insight (backe
 
 | Tier | What | Budget | Loaded when | Contains |
 |------|------|--------|-------------|----------|
-| **T0: Axioms** | `axioms.md` | ~50 lines, always loaded | Every session start | Behavioral overrides that contradict default model behavior |
+| **T0: Axioms** | `axioms.md` | **10-12 items** (Cowan cap) | Every session start | Behavioral overrides: Universal + Role categories only |
 | **T0: Config** | `CLAUDE.md` | ~70 lines, always loaded | Every session start | Workflow rules, retrieval strategy |
-| **T1: Index** | `MEMORY.md` | ~40 lines, always loaded | Every session start | One-line pointers to topic files |
+| **T1: Index** | `MEMORY.md` | ~40-80 lines (hard limit: 200 / 25KB) | Every session start | One-line pointers to topic files |
+| **T1.5: Phase rules** | `.claude/rules/phase-*.md` | ~5 rules per file | **Auto-loads when matching files are touched** | Phase-specific rules with `paths:` YAML frontmatter |
 | **T2: Topic files** | feedback_*.md, reference_*.md | ~50 lines each | Loaded on demand | Workflow reminders, key references |
 | **T3: Archives** | lessons.md, sessions_archive.md, handoffs/ | Unlimited | **grep only, never bulk-read** | Full history, all lessons, session logs |
 
-**Axioms promotion criteria**: A lesson qualifies for `axioms.md` if: "I would get this wrong by default without the lesson." Examples:
-- "Session history is retrievable from JSONL files" (contradicts trained-in belief that conversations are ephemeral)
-- "Bash tool PATH is stripped" (contradicts assumption that `which` is reliable)
-- "Background agents can't write" (contradicts expectation that agents have full tool access)
+**Global phase templates** live at `~/.claude/templates/phase_*.md` — reusable across projects. Copy into a project's `.claude/rules/` with `paths:` frontmatter to auto-activate.
 
-If the lesson is just a good practice that I'd likely follow anyway, it stays in T3.
+#### Axiom classification (three categories)
+
+| Category | Definition | Stays in axioms.md? | Example |
+|----------|-----------|---------------------|---------|
+| **Universal** | Applies regardless of project or phase | Yes — always | "Never fabricate data", "Bash PATH is stripped" |
+| **Role** | Applies to all projects for this user's role | Yes — until role changes | "No jargon in client materials" (agency DS) |
+| **Phase** | Only relevant during specific project phases | **No — move to phase templates** | "Current-vs-planned boundary" (data sourcing) |
+
+#### Axiom promotion criteria (ALL three must hold)
+
+1. **Default wrong** — A fresh Claude session would get this wrong without the lesson
+2. **Silent failure** — No test, linter, or CI check catches it
+3. **Recent or structural** — Fires regularly OR is structurally guaranteed to recur across projects
+
+#### Axiom demotion triggers (ANY one sufficient)
+
+1. **Dormant** — Not relevant in 20+ sessions (measured across ALL user projects for agency workers, not just the current one)
+2. **Caught by tooling** — A test, CI check, or structural change now catches it
+3. **Subsumable** — Can be merged with a related axiom (chunking to stay under cap)
+
+#### Axiom capacity enforcement
+
+- **Hard cap: 12 items** (Cowan 2001: 3-4 chunks × 3 items/chunk)
+- Every new promotion past 12 requires a demotion
+- Two-incident rule (Google SRE): a lesson that surfaces in 2+ sessions without being queried should be promoted
+
+#### Phase detection for staleness
+
+When auditing axiom staleness, detect the user's work pattern from `user_role.md`:
+- **Single long project** → measure staleness within the project (session count)
+- **Agency / multi-client** → measure staleness across the user's portfolio (calendar time). A rule dormant in THIS project for 30 sessions may fire immediately in the NEXT client engagement.
+
+Classify dormant axioms as:
+- **KEEP** — Universal or Role, still relevant
+- **DEMOTE** — Truly irrelevant, move to T3 lessons.md
+- **PHASE** — Phase-specific, move to `~/.claude/templates/phase_*.md` and project `.claude/rules/`
 
 **CLAUDE.md retrieval strategy audit**: Check that the session start checklist says:
 - Load `axioms.md` (not bulk-read `lessons.md`)
@@ -71,6 +104,17 @@ Flag content at the wrong tier:
 - A critical workflow reminder buried in sessions_archive → should be promoted to T1 (MEMORY.md pointer) or T2 (its own topic file)
 - Inline session logs in MEMORY.md → should be extracted to T3
 - CLAUDE.md saying "read lessons.md" → should be "grep lessons.md"
+
+#### 1b2. Phase templates and path-scoped rules
+
+Check for the existence and correctness of phase-specific rules:
+
+1. **Global templates**: Glob `~/.claude/templates/phase_*.md`. List available templates.
+2. **Project path-scoped rules**: Glob `.claude/rules/phase-*.md` (or `.claude/rules/*.md` with `paths:` frontmatter). For each:
+   - Does the `paths:` glob actually match files in the current project? (dead globs = unused rules)
+   - Is the content consistent with the global template it was copied from?
+3. **Axiom-to-template migration candidates**: For each axiom in `axioms.md`, classify as Universal/Role/Phase. Flag Phase axioms for migration to templates.
+4. **Axiom capacity check**: Count items in `axioms.md`. If >12, flag as over Cowan cap and identify merge/demotion candidates.
 
 #### 1c. Memory topic files
 Glob `~/.claude/projects/<current-project>/memory/*.md` (excluding MEMORY.md and lessons.md). For each file, read the frontmatter (name, description, type). Check:
@@ -144,11 +188,19 @@ Present findings as a structured audit report. Group by severity:
 - N session files flagged for compression
 - sessions_archive.md: N lines (suggest split if >200)
 
-### Axioms
-- axioms.md: exists/missing, N lines (target: <60)
-- N axioms that may be stale (referenced function/path no longer exists)
-- N lessons in T3 that should be promoted (override default model behavior)
+### Axioms (target: 10-12 items, Cowan cap)
+- axioms.md: exists/missing, N items (target: ≤12)
+- Classification: N Universal / N Role / N Phase
+- N Phase axioms that should migrate to `~/.claude/templates/phase_*.md`
+- N axioms flagged for demotion (dormant / caught by tooling / subsumable)
+- N merge candidates to reach capacity cap
 - CLAUDE.md retrieval strategy: correct/needs update
+
+### Phase Templates
+- `~/.claude/templates/`: N template files found
+- `.claude/rules/`: N path-scoped rule files, N with dead `paths:` globs
+- N axioms that should be Phase templates instead of always-loaded
+- Suggestion: create missing templates for common project phases
 
 ### ADR Best Practices
 - N missing bidirectional links
@@ -206,6 +258,18 @@ Apply approved changes. For each fix type:
 - Delete obvious duplicates (same content, different filenames) after user confirmation
 - Create index file if >10 ADRs and none exists
 - Create gap stubs if the user approves
+
+**Axiom management:**
+- For items classified as DEMOTE: move to `lessons.md` (T3), update search keywords, remove from `axioms.md`
+- For items classified as PHASE: move to `~/.claude/templates/phase_*.md` (create template if it doesn't exist), add to project `.claude/rules/` with appropriate `paths:` glob, remove from `axioms.md`
+- For merge candidates: combine related axioms into a single more general rule, preserving the key insight from each
+- After changes: verify axiom count is ≤12, verify all Phase items have matching path-scoped rules
+
+**Phase template management:**
+- If `~/.claude/templates/` doesn't exist: create it and populate with standard phase templates (onboarding, data sourcing, analysis, deliverables, code review)
+- If project `.claude/rules/` is empty: suggest copying relevant templates with `paths:` frontmatter matching the project's directory structure
+- If path-scoped rules have dead globs (no matching files): update globs or suggest removal
+- For new projects: suggest `@import` of the most relevant phase template in project CLAUDE.md
 
 **Cross-project scope review** (inspired by [OpenViking](https://github.com/volcengine/OpenViking) hierarchical context):
 - **Promotion**: If a project lesson appears in 3+ projects, suggest moving to global
