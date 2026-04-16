@@ -90,6 +90,14 @@ mkdir -p .cursor/rules
 git clone https://github.com/wan-huiyan/memory-hygiene.git ~/.cursor/skills/memory-hygiene
 ```
 
+> **Also available bundled:** `memory-hygiene` is included in the
+> [claude-ecosystem-hygiene](https://github.com/wan-huiyan/claude-ecosystem-hygiene)
+> marketplace alongside [`ecosystem-audit`](https://github.com/wan-huiyan/claude-ecosystem-hygiene/tree/main/plugins/ecosystem-audit)
+> (full-coverage ecosystem audit) and
+> [`skill-trigger-eval-subprocess-blindness`](https://github.com/wan-huiyan/claude-ecosystem-hygiene/tree/main/plugins/skill-trigger-eval-subprocess-blindness)
+> (skill-creator diagnostic). This repo remains the canonical source —
+> installing from either location gives you the same skill.
+
 ## What You Get
 
 - **Axiom management** — classifies each axiom as Universal/Role/Phase, enforces 12-item Cowan cap, flags demotion and merge candidates
