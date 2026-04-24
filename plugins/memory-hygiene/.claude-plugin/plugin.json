@@ -1,7 +1,7 @@
 {
   "name": "memory-hygiene",
-  "description": "Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, and ADRs",
-  "version": "2.1.0",
+  "description": "Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, ADRs — plus project docs/ taxonomy hygiene",
+  "version": "3.1.0",
   "author": {
     "name": "Huiyan Wan"
   },
@@ -14,6 +14,7 @@
     "cleanup",
     "audit",
     "lessons",
-    "adr"
+    "adr",
+    "docs-taxonomy"
   ]
 }

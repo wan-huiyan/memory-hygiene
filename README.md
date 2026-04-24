@@ -1,7 +1,7 @@
 # memory-hygiene
 [![GitHub release](https://img.shields.io/github/v/release/wan-huiyan/memory-hygiene)](https://github.com/wan-huiyan/memory-hygiene/releases) [![Claude Code](https://img.shields.io/badge/Claude_Code-skill-orange)](https://claude.com/claude-code) [![license](https://img.shields.io/github/license/wan-huiyan/memory-hygiene)](LICENSE) [![last commit](https://img.shields.io/github/last-commit/wan-huiyan/memory-hygiene)](https://github.com/wan-huiyan/memory-hygiene/commits)
 
-Audit and optimize Claude Code's persistent memory system — axioms, phase templates, MEMORY.md, lessons, memory files, and ADRs — using a research-backed tiered architecture with promotion/demotion lifecycle and agency-aware staleness detection.
+Audit and optimize Claude Code's persistent memory system — axioms, phase templates, MEMORY.md, lessons, memory files, and ADRs — using a research-backed tiered architecture with promotion/demotion lifecycle and agency-aware staleness detection. **v3.1** adds a peer workflow for auditing a project's `docs/` directory against a canonical 7-bucket taxonomy.
 
 ## The Problem
 
@@ -114,6 +114,7 @@ git clone https://github.com/wan-huiyan/memory-hygiene.git ~/.cursor/skills/memo
 - **ADR best practices** — numbering, bidirectional links, Confirmation sections, index file, gap stubs
 - **Cross-project scope review** — suggests promoting frequently-reused project lessons to global (with user approval)
 - **Writing quality gate** — three-question check before creating new memory files
+- **docs/ taxonomy audit (v3.1)** — classifies every file in a project's `docs/` against a 7-bucket canonical taxonomy (decisions, runbooks, analysis, references, reviews, handoffs, deliverables); detects loose files, duplicate folders (`handoff/` + `handoffs/`), stale candidates, and non-doc artifacts. Produces a human-reviewable audit report. Never auto-moves — `--migrate` pass generates a feature branch with `git mv` commands plus link-rewrite for PR review.
 
 ## How It Works
 
@@ -197,7 +198,7 @@ cp ~/.claude/templates/phase_*.md new-project/.claude/rules/
 
 ## Comparison
 
-| | Without skill | With memory-hygiene v3.0 |
+| | Without skill | With memory-hygiene v3.1 |
 |---|---|---|
 | Critical lessons ignored | Buried at line 617 of 1400-line file | Promoted to axioms (≤12, always loaded) or phase templates (auto on file match) |
 | Phase-specific rules | Either always loaded (wastes attention) or demoted (gets missed) | Auto-activate via `.claude/rules/` path globs — zero attention cost when irrelevant |
