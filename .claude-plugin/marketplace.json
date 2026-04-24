@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "wan-huiyan-memory-hygiene",
-  "description": "Hygiene-family marketplace — audit and clean up Claude Code's persistent memory system, project docs/ taxonomy, and automated test effectiveness. A rename to 'project-hygiene' is proposed in the PR that added test-effectiveness-auditor; the marketplace name is preserved for now to keep existing installs working.",
+  "description": "Single-plugin marketplace for memory-hygiene — Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, ADRs — plus project docs/ taxonomy hygiene",
   "owner": {
     "name": "wan-huiyan"
   },
@@ -11,12 +11,6 @@
       "source": "./plugins/memory-hygiene",
       "description": "Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, ADRs — plus project docs/ taxonomy hygiene",
       "version": "3.1.0"
-    },
-    {
-      "name": "test-effectiveness-auditor",
-      "source": "./plugins/test-effectiveness-auditor",
-      "description": "Quantitatively measure how effective a project's automated test suite is at catching real bugs, by replaying historical incidents at pre-fix commits and classifying CI failure history",
-      "version": "1.0.0"
     }
   ]
 }
