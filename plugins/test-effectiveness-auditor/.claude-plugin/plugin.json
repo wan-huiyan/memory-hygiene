@@ -1,0 +1,19 @@
+{
+  "name": "test-effectiveness-auditor",
+  "description": "Quantitatively measure how effective a project's automated test suite is at catching real bugs, by replaying historical incidents at pre-fix commits and classifying CI failure history.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Huiyan Wan"
+  },
+  "repository": "https://github.com/wan-huiyan/memory-hygiene",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "claude-code-skill",
+    "testing",
+    "test-effectiveness",
+    "incident-replay",
+    "audit",
+    "quality"
+  ]
+}
