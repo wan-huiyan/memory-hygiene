@@ -1,22 +1,26 @@
 ---
 name: memory-hygiene
-description: "Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, ADRs, and project docs/ directories. Use this skill when: (1) the user asks to clean up, audit, or review their memory/lessons/ADRs, (2) MEMORY.md is approaching or exceeding the 200-line limit, (3) lesson files have grown large and may contain duplicates, (4) you notice ADR numbering conflicts, (5) memory files seem stale or contradicted by current code, (6) the user says things like 'my memory is getting messy', 'clean up my lessons', 'deduplicate', 'review ADRs', 'memory audit', or (7) a project's docs/ directory has drifted — loose files at docs/*.md, duplicate folders (e.g. handoff/ AND handoffs/), subdirs outside a canonical taxonomy, or staleness. Also proactively suggest running this after 10+ sessions on a project, or when MEMORY.md triggers a truncation warning."
+description: "Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, and ADRs. Use this skill when: (1) the user asks to clean up, audit, or review their memory/lessons/ADRs, (2) MEMORY.md is approaching or exceeding the 200-line limit, (3) lesson files have grown large and may contain duplicates, (4) you notice ADR numbering conflicts, (5) memory files seem stale or contradicted by current code, or (6) the user says things like 'my memory is getting messy', 'clean up my lessons', 'deduplicate', 'review ADRs', 'memory audit'. Also proactively suggest running this after 10+ sessions on a project, or when MEMORY.md triggers a truncation warning."
 ---
 
-# Memory Hygiene v3.1 — Audit & Cleanup
+# Memory Hygiene v3.3 — Audit & Cleanup
 
-This skill audits Claude Code's persistent knowledge stores (axioms, MEMORY.md, memory topic files, lessons, phase templates, and ADRs) for structural problems that degrade future session quality. It produces a structured report, gets user approval, then executes fixes.
+This skill audits Claude Code's persistent knowledge stores (axioms, MEMORY.md — both auto-memory and in-repo, memory topic files, lessons, phase templates, ADRs, and the project `docs/` taxonomy) for structural problems that degrade future session quality. It produces a structured report, gets user approval, then executes fixes.
 
-v3.0 adds phase template management, three-category axiom classification (Universal/Role/Phase), capacity ceiling enforcement, agency-aware staleness detection, and path-scoped rule auditing. Backed by research from cognitive science (Cowan 2001), LLM research (Liu et al. 2024 TACL, EMNLP 2025, Chroma Context Rot 2025), KM theory (Markus 2001), and SRE practice (Google SRE post-mortem framework). Full sources in `~/Documents/memory_hygiene_guide.md`.
+v3.3 adds **label-table integrity audit** (§1i) and **project `docs/` taxonomy audit** (§1j). The 7-bucket taxonomy that `session-handoff` dispatches to is now defined here as source-of-truth — previously `session-handoff` referenced "memory-hygiene v3.1" for this but the definition lived nowhere. §1i catches fabricated code→label tables in `lessons.md` / `feedback_*.md` / `reference_*.md` that bypass the author-side gate `session-handoff` runs in its Phase 0.
 
-v3.1 adds a peer workflow — **docs/ taxonomy audit** — that applies the same audit → report → approve → migrate → verify discipline to a project's `docs/` directory. Memory hygiene keeps Claude's context clean; docs hygiene keeps the human-readable project knowledge base navigable. Both degrade over time without active curation.
+v3.2 adds **in-repo `MEMORY.md` detection** (§1a2) — the A/B counterfactual harness (n=3, 2026-04-21) showed that in-repo `MEMORY.md` files (e.g., project-root `MEMORY.md` or `docs/MEMORY.md`) survive a `CLAUDE_CONFIG_DIR` clean env and drive measurable success on tasks that the `~/.claude/projects/*/memory/MEMORY.md` auto-memory file cannot. v3.1's §1a scanned only the auto-memory MEMORY.md, making the in-repo counterpart invisible to memory hygiene. v3.2 scans both and reports them as separate tiers in the audit output (T1 auto-memory and T1-repo).
+
+v3.1 added **feedback lifecycle detection** (§1c2) — classifying each `feedback_*.md` file as Incorporated / Pending / Dormant / Superseded based on whether its rule has been promoted to axioms/lessons/templates — and emits a `feedback_incorporation_rate` metric for downstream consumers like `ecosystem-audit`.
+
+v3.0 added phase template management, three-category axiom classification (Universal/Role/Phase), capacity ceiling enforcement, agency-aware staleness detection, and path-scoped rule auditing. Backed by research from cognitive science (Cowan 2001), LLM research (Liu et al. 2024 TACL, EMNLP 2025, Chroma Context Rot 2025), KM theory (Markus 2001), and SRE practice (Google SRE post-mortem framework). Full sources in `~/Documents/memory_hygiene_guide.md`.
 
 ## Why this matters
 
 Claude Code loads MEMORY.md and CLAUDE.md at the start of every conversation. Two failure modes degrade session quality:
 
 1. **Truncation**: MEMORY.md exceeding ~200 lines / 25KB is silently truncated — context lost without warning.
-2. **Lost in the Middle** (Liu et al. 2023): Even within the context window, LLMs show >30% accuracy degradation for information positioned in the middle of long contexts due to U-shaped positional attention bias. A critical lesson at line 617 of a 1400-line file is effectively invisible — not because it was truncated, but because attention drops off.
+2. **Lost in the Middle** (Liu et al. 2024): Even within the context window, LLMs show ~20pp accuracy degradation for information positioned in the middle of long contexts due to U-shaped positional attention bias. A critical lesson at line 617 of a 1400-line file is effectively invisible — not because it was truncated, but because attention drops off.
 
 This means bulk-loading large files (lessons.md, session archives) into context is worse than useless — it wastes tokens AND buries the important rules. The solution is a tiered architecture where only high-signal behavioral overrides occupy always-loaded context, and everything else is retrieved on demand via grep.
 
@@ -30,10 +34,6 @@ This means bulk-loading large files (lessons.md, session archives) into context 
   - You spot duplicate lesson numbers while reading lessons.md
   - Multiple ADR files share the same number prefix
   - A memory file references a function/file/library that no longer exists in the codebase
-  - A project's `docs/` has 20+ loose `.md` files directly at `docs/*.md`
-  - A project's `docs/` has subdirs outside the canonical 7-bucket taxonomy (see docs workflow below)
-  - A project's `docs/` has singular/plural folder duplicates (e.g. `handoff/` AND `handoffs/`)
-  - A project's `docs/` contains `__pycache__/`, `.py` scripts, or other non-doc artifacts
 
 ## The audit-then-fix workflow
 
@@ -41,18 +41,55 @@ This means bulk-loading large files (lessons.md, session archives) into context 
 
 Read all persistent state files. Use parallel reads where possible.
 
-#### 1a. MEMORY.md
-Read the full index. Note total line count and whether it contains inline content (session logs, architecture sections, decision tables) that should live in topic files.
+#### 1a. MEMORY.md (auto-memory — T1)
+
+Read the full auto-memory index at `~/.claude/projects/<project>/memory/MEMORY.md`. Note total line count and whether it contains inline content (session logs, architecture sections, decision tables) that should live in topic files.
+
+#### 1a2. In-repo `MEMORY.md` (T1-repo) — NEW in v3.2
+
+**Why this sub-check exists.** The A/B counterfactual harness (2026-04-21, n=3) showed that on Task 2 (the-causal-project CausalPy regression), both clean and normal environments succeeded because the-causal-project repo has its own `MEMORY.md` at the project root with a prominent pointer to `docs/findings/causalpy_v04_wrapper_investigation.md`. This in-repo file survived the `CLAUDE_CONFIG_DIR=/tmp/...` clean env and carried the success. v3.1's §1a could not see it — it only knew about `~/.claude/projects/<project>/memory/MEMORY.md`.
+
+The in-repo MEMORY.md is a distinct tier because it lives with the code, is version-controlled, and is visible to every session that `cd`s into the project (including clean-env and colleague-checkout sessions). The auto-memory MEMORY.md is user-local and disappears when `~/.claude/` is wiped.
+
+**What to scan.** For the current project's working directory:
+
+1. **Discover**: glob for any file named `MEMORY.md` (case-sensitive) under the project root.
+2. **Exclude**: paths under `~/.claude/` (those are T1 auto-memory, not T1-repo), `.git/`, `node_modules/`, `__pycache__/`, `cache/`, `.venv/`, `venv/`.
+3. **Include**: all remaining matches, regardless of depth (root `MEMORY.md`, `docs/MEMORY.md`, subproject `MEMORY.md` all count).
+4. **Report each** with its relative path so the user can eyeball false positives (e.g., a vendored sub-project's `MEMORY.md`).
+
+**Checks (same structural rules as §1a):**
+- Line count ≤200 (hard limit 25KB) — truncation is the same risk whether in-repo or auto-memory.
+- Entries are one-line pointers, not inline content (session logs, architecture sections, decision tables → extract to topic files).
+- Links inside the index resolve: if an entry says `[foo](docs/foo.md)`, verify `docs/foo.md` exists.
+- No frontmatter on `MEMORY.md` itself (it's an index, not a memory file).
+- Linked target files have frontmatter (name / description / type) when they are memory-style topic files.
+
+**Classification tier in reports.** Call it **T1-repo** to complement **T1** auto-memory. Example report header:
+
+```
+### Critical (breaks functionality)
+- T1 (auto-memory) MEMORY.md: N lines — OK / truncating
+- T1-repo MEMORY.md at <relative path>: N lines — OK / truncating / missing index links
+- N in-repo MEMORY.md files found (list paths)
+```
+
+**If both tiers exist.** Flag any rule that is duplicated verbatim between the auto-memory MEMORY.md and an in-repo MEMORY.md. The two serve different audiences (T1 is user-private; T1-repo is teammate-visible), but a verbatim copy usually means the user meant to keep it in one place and forgot to delete the other. Ask, don't auto-merge.
+
+**If neither exists.** The auto-memory MEMORY.md is created by Claude Code; its absence is odd but not a hygiene failure. The in-repo MEMORY.md is optional — its absence is a missed opportunity but not a defect. Do not auto-create either.
+
+**Edge case — monorepo.** A monorepo may legitimately have multiple in-repo `MEMORY.md` files (one per sub-project). Report all, scope each linked-file check to the containing sub-project.
 
 #### 1b. Tiered loading check
 
-Claude Code's memory should follow a tiered architecture. The key insight (backed by Liu et al. 2023 "Lost in the Middle") is that bulk-loading large files into context is counterproductive — information in the middle of long contexts is effectively ignored even when not truncated. Check that content lives at the right tier:
+Claude Code's memory should follow a tiered architecture. The key insight (backed by Liu et al. 2024 "Lost in the Middle") is that bulk-loading large files into context is counterproductive — information in the middle of long contexts is effectively ignored even when not truncated. Check that content lives at the right tier:
 
 | Tier | What | Budget | Loaded when | Contains |
 |------|------|--------|-------------|----------|
 | **T0: Axioms** | `axioms.md` | **10-12 items** (Cowan cap) | Every session start | Behavioral overrides: Universal + Role categories only |
 | **T0: Config** | `CLAUDE.md` | ~70 lines, always loaded | Every session start | Workflow rules, retrieval strategy |
-| **T1: Index** | `MEMORY.md` | ~40-80 lines (hard limit: 200 / 25KB) | Every session start | One-line pointers to topic files |
+| **T1: Index (auto-memory)** | `~/.claude/projects/<project>/memory/MEMORY.md` | ~40-80 lines (hard limit: 200 / 25KB) | Every session start (auto-injected) | One-line pointers to topic files in auto-memory |
+| **T1-repo: Index (in-repo)** | `<project>/MEMORY.md` or `<project>/docs/MEMORY.md` (any in-repo `MEMORY.md`) | ~40-80 lines (hard limit: 200 / 25KB) | Every session that `cd`s into project; survives `CLAUDE_CONFIG_DIR` clean env | One-line pointers to in-repo topic/findings/runbook files |
 | **T1.5: Phase rules** | `.claude/rules/phase-*.md` | ~5 rules per file | **Auto-loads when matching files are touched** | Phase-specific rules with `paths:` YAML frontmatter |
 | **T2: Topic files** | feedback_*.md, reference_*.md | ~50 lines each | Loaded on demand | Workflow reminders, key references |
 | **T3: Archives** | lessons.md, sessions_archive.md, handoffs/ | Unlimited | **grep only, never bulk-read** | Full history, all lessons, session logs |
@@ -128,6 +165,42 @@ Glob `~/.claude/projects/<current-project>/memory/*.md` (excluding MEMORY.md and
 - Is its `type` field valid? (must be: user, feedback, project, reference)
 - Does its content overlap substantially with another memory file?
 
+#### 1c2. Feedback lifecycle (incorporation status)
+
+Memory files with `type: feedback` are meant to capture a rule or insight that should eventually be **promoted** (to `axioms.md` or `lessons.md`) or **encoded** into a phase template. Until that happens, they are loose notes competing for attention with already-promoted rules. This sub-check classifies every `feedback_*.md` file by where its rule currently lives.
+
+**For each `feedback_*.md` file** in `~/.claude/projects/<project>/memory/`:
+
+1. **Extract the core rule.** Parse the body for a `**Rule:**` section (per the file-format convention) or, if absent, take the first bolded sentence or the first sentence after the `description:` frontmatter.
+2. **Extract key identifiers** from the rule: proper nouns, file/skill names, unique noun phrases (≥ 2 content words). Drop stopwords.
+3. **Search the promotion surfaces:**
+   - `~/.claude/axioms.md`
+   - `~/.claude/lessons.md` and `~/.claude/projects/<project>/memory/lessons.md`
+   - `~/.claude/templates/phase_*.md` and the project's `.claude/rules/*.md`
+4. **Classify:**
+
+| Status | Criterion | Action |
+|---|---|---|
+| **Incorporated** | ≥ 1 identifier found verbatim in a promotion surface | Keep feedback file as provenance; OK |
+| **Pending** | Written within last 30 days, no match yet | Allow ripening |
+| **Dormant** | > 30 days old, no match, file unchanged in 30+ days | Candidate: demote to lessons.md or delete |
+| **Superseded** | Another feedback file with overlapping identifiers was written later and contradicts this one | Flag conflict; ask user which rule wins |
+
+5. **Compute `feedback_incorporation_rate`** = `incorporated_count / (incorporated + dormant + superseded)`. Exclude Pending from the denominator — those haven't had time to be incorporated yet.
+
+**Report signals (surface in Phase 2):**
+- Total feedback files; breakdown by status
+- Dormant files (>30 days, unreferenced) — list with age and core rule
+- Superseded pairs — list both files side-by-side for user resolution
+- Incorporation rate (excluding Pending)
+
+**Why this matters:** feedback files that never get promoted become a hidden tier of rules that aren't in axioms (not always-loaded), aren't in lessons (not grep-findable under the standard retrieval pattern), and aren't in templates (not phase-activated). They're effectively invisible after the session that created them — the same "Lost in the Middle" (Liu et al. 2024) logic that motivates the whole tiered architecture.
+
+**Phase 4 fixes for this sub-check:**
+- **Dormant** → with user approval, move the rule to `lessons.md` (T3) under the appropriate category, then delete the feedback file OR keep it with a `status: archived` frontmatter addition.
+- **Superseded** → present both rules side-by-side, ask the user which wins, then merge or delete the loser.
+- **Pending** → no action; re-check on next audit.
+
 #### 1d. Staleness detection (inspired by [claude-memory-skill](https://github.com/SomeStay07/claude-memory-skill) and [Zep](https://arxiv.org/abs/2501.13956))
 
 Beyond simple age checks, look for these staleness signals:
@@ -163,6 +236,60 @@ Glob `docs/decisions/*.md` (or wherever the project keeps ADRs). Check:
 - **Gap stubs**: If a number is missing in the sequence (e.g., ADR-0014 doesn't exist), suggest a stub with `Status: Skipped`
 - **PR back-links**: ADRs should reference the implementing PR in a `## Links` section
 
+#### 1i. Label-table integrity (NEW in v3.3)
+
+**Why.** Handoff docs and lessons sometimes contain code → human-label tables (Salesforce status codes, HTTP statuses, enum descriptions). When these labels are fabricated by a predecessor session, downstream sessions treat them as authoritative. `session-handoff` Phase 0 gates this at the handoff-doc author side via `scripts/label_audit.py`; this sub-check catches fabricated labels that already landed in `lessons.md`, `feedback_*.md`, or `reference_*.md` before the gate existed, or via in-memory batch edits that bypassed the hook.
+
+**Scan targets:**
+- `~/.claude/lessons.md`
+- `~/.claude/projects/<project>/memory/lessons.md`
+- `~/.claude/projects/<project>/memory/feedback_*.md`
+- `~/.claude/projects/<project>/memory/reference_*.md`
+
+**Detect.** Any markdown table whose first column is a short code (≤4 chars, ALL-CAPS or numeric) and second column is a sentence-style description, where the row lacks an inline tag (`[verified: <path>:<line>]` or `[HYPOTHESIS]`).
+
+**Tool.** Invoke `~/.claude/skills/session-handoff/scripts/label_audit.py` against each scan target. If the skill is absent, log "label_audit not installed" and continue (graceful degrade — same pattern session-handoff uses for the reverse-lint call).
+
+**Never auto-tag.** Surface candidates with file:line and let the user verify against the authoritative source (axioms.md § Authoritative Labels). Tagging a guess as `[verified: ...]` is worse than leaving it untagged.
+
+#### 1j. Project `docs/` taxonomy audit (NEW in v3.3)
+
+**Why.** `session-handoff` dispatches output across a canonical 7-bucket `docs/` taxonomy. Without a periodic audit, projects accumulate loose files at `docs/*`, non-canonical subdirs, or singular/plural duplicates (`handoff/` + `handoffs/`). This sub-check is the source-of-truth definition that `session-handoff` references.
+
+**The canonical 7 buckets:**
+
+| # | Bucket | Contains |
+|---|--------|----------|
+| 1 | `docs/decisions/` | ADRs (`NNNN-kebab-case.md`) |
+| 2 | `docs/runbooks/` | Rerun / retrain / operational procedures |
+| 3 | `docs/analysis/` | Findings, diagnostics, discoveries, exploratory write-ups |
+| 4 | `docs/references/` | Schemas, data dictionaries, project-convention docs |
+| 5 | `docs/reviews/` | Review-panel output, peer review, audits |
+| 6 | `docs/handoffs/` | Session handoffs + next-session prompts |
+| 7 | `docs/deliverables/` | External-facing artifacts (client drafts, PDFs, decks) — add a `.provenance.md` sibling if generated |
+
+**Reserved top-level file:** only `docs/README.md`.
+**Permitted 8th directory:** `docs/plans/` for forward-looking artifacts (`future_sessions_plan.md`). Flag only if it contains backward-looking content that belongs in `analysis/` or `handoffs/`.
+**Exclude entirely:** `__pycache__/`, `.py` scripts (belong in `scripts/`), `.DS_Store`.
+
+**Checks:**
+- **Loose files at `docs/*`** — anything other than `README.md` directly under `docs/`
+- **Non-canonical subdirs** — e.g., `docs/findings/` → should be `docs/analysis/`; `docs/handoff/` → `docs/handoffs/`
+- **Plural/singular duplicates** — `handoff/` + `handoffs/`, `decision/` + `decisions/`
+- **Bucket-typed content in the wrong place** — an ADR-style file in `docs/analysis/`, a review report in `docs/findings/`
+
+**Migration support.** If `docs/` has substantially drifted, offer a `--migrate` flag that proposes (does not execute) a move plan:
+
+```
+docs/findings/X.md        → docs/analysis/X.md
+docs/handoff/sN.md        → docs/handoffs/sN.md
+docs/foo_at_root.md       → docs/<inferred-bucket>/foo.md
+```
+
+User approves moves one at a time. Use `git mv` to preserve history. Never auto-rename. After moves, update any handoff doc, plan, or skill that hard-codes the old path (run `doc-freshness-reverse-lint` on the migration commit to catch references).
+
+Keeping this taxonomy aligned with `session-handoff`'s dispatch means a session's output lands where the next session's audit expects to find it.
+
 ### Phase 2: Report
 
 Present findings as a structured audit report. Group by severity:
@@ -171,7 +298,9 @@ Present findings as a structured audit report. Group by severity:
 ## Memory Hygiene Audit
 
 ### Critical (breaks functionality)
-- MEMORY.md is N lines (limit: ~200) — truncation is active
+- T1 (auto-memory) MEMORY.md is N lines (limit: ~200) — truncation is active
+- T1-repo MEMORY.md at <relative path> is N lines — truncation/missing links
+- N in-repo MEMORY.md files found (list paths; flag any under suspicious dirs)
 - N orphaned memory files not indexed in MEMORY.md
 - axioms.md missing or not referenced from CLAUDE.md session start checklist
 - CLAUDE.md says "read lessons.md" instead of "grep lessons.md" (bulk-load anti-pattern)
@@ -208,11 +337,29 @@ Present findings as a structured audit report. Group by severity:
 - N axioms that should be Phase templates instead of always-loaded
 - Suggestion: create missing templates for common project phases
 
+### Feedback Lifecycle (§1c2)
+- N feedback files total: N Incorporated / N Pending / N Dormant / N Superseded
+- Incorporation rate (excluding Pending): X%
+- Dormant files (list with age and core rule)
+- Superseded pairs (list for user resolution)
+
 ### ADR Best Practices
 - N missing bidirectional links
 - N ADRs without Confirmation section
 - Index file: exists/missing (with N total ADRs)
 - N sequence gaps without stubs
+
+### Label-Table Integrity (§1i)
+- N candidate fabricated-label rows across lessons / feedback / references
+- Files affected with line refs (do not propose auto-tags)
+- `label_audit.py` available: yes / no
+
+### Project `docs/` Taxonomy (§1j)
+- N loose files at `docs/*` (list)
+- N non-canonical subdirs (list with suggested target bucket)
+- N plural/singular duplicates
+- N items of bucket-typed content in the wrong bucket
+- Migration plan ready / not needed
 
 ### Recommendations
 - For each issue: what to do, files affected, estimated impact
@@ -277,6 +424,17 @@ Apply approved changes. For each fix type:
 - If path-scoped rules have dead globs (no matching files): update globs or suggest removal
 - For new projects: suggest `@import` of the most relevant phase template in project CLAUDE.md
 
+**Label-table tagging (§1i):**
+- For each flagged row: present the row + ask the user for the authoritative source (axioms.md § Authoritative Labels has the criteria).
+- If confirmed: add `[verified: <repo-relative-path>:<line>]` after the description.
+- If unverifiable: add `[HYPOTHESIS]` so downstream sessions know to re-probe.
+- Never auto-tag — tagging a guess as `verified` is worse than leaving it untagged.
+
+**Taxonomy migration (§1j):**
+- Surface the proposed move plan (from `--migrate` dry-run). Execute moves with `git mv` so history is preserved. Run one bucket at a time.
+- After each move, run `doc-freshness-reverse-lint` on the migration commit to catch references in handoff docs, plans, or skills that hard-code the old path.
+- Verify `session-handoff` would dispatch the same content to the new location (the canonical taxonomy is defined in §1j).
+
 **Cross-project scope review** (inspired by [OpenViking](https://github.com/volcengine/OpenViking) hierarchical context):
 - **Promotion**: If a project lesson appears in 3+ projects, suggest moving to global
 - **Scope review**: Flag global lessons that currently appear in only one project — but always ask the user before suggesting any move. Present context: "This lesson currently appears only in [project]. Given your role, should it stay global for future projects?" Never auto-demote.
@@ -334,195 +492,3 @@ Body content in markdown. For feedback/project types, structure as:
 - Recommended: Confirmation ("how do we verify this was implemented?")
 - Optional: Alternatives Considered, Consequences, Revert Criteria, Links (implementing PR)
 - Bidirectional links: If superseding another ADR, update both files
-
----
-
-# docs/ taxonomy audit workflow (v3.1)
-
-A peer workflow to memory-hygiene. Applies the same audit → report → approve → migrate → verify discipline to a project's `docs/` directory. Produces a human-readable audit report; **never moves files automatically**. A separate `--migrate` pass generates a feature branch with bulk `git mv` commands for human review.
-
-## When to run the docs workflow
-
-Trigger on any of:
-- `docs/` has 20+ loose `.md` files directly at `docs/*.md`
-- Subdirs exist outside the 7-bucket canonical taxonomy
-- Singular/plural folder duplicates (`handoff/` AND `handoffs/`, `review/` AND `reviews/`)
-- `__pycache__/`, `.py`, `.DS_Store`, or other non-doc artifacts in `docs/`
-- User says "my docs is a mess", "audit docs", "reorganize docs"
-
-## The 7-bucket canonical taxonomy
-
-Every file in `docs/` belongs in exactly one of these buckets. Subdirs outside this list are violations. Top-level `.md` files (other than `README.md`) are violations.
-
-| # | Bucket | Contains | Common absorbs |
-|---|--------|----------|----------------|
-| 1 | `decisions/` | Go/no-go, architecture choices, ADRs, tradeoffs | `go_no_go*.json`, `v5_vs_v4_*.md`, `architecture/`, `design/`, `NNNN-*.md` |
-| 2 | `runbooks/` | Operational how-tos, retrain procedures, rerun guides, QA | `retrain_requests/`, `rerun-guide.md`, `qa/`, `validation/` |
-| 3 | `analysis/` | Exploratory analyses, findings, investigations, diagnostics | `analysis_*.md`, `findings/`, `diagnostics/`, `discovery_*.md`, `overnight/`, `brainstorm_*.md` |
-| 4 | `references/` | Schemas, dictionaries, API refs, project conventions | `data_dictionary.md`, `bq_*.md`, `sf_*.md`, `snowflake_*.md`, `*_reference.md`, status-code docs |
-| 5 | `reviews/` | Review-panel reports, peer reviews, audits | `review_*.md`, `next_*.md`, `audits/`, `*_audit_report.md` |
-| 6 | `handoffs/` | Session handoffs, plans, next-steps, tickets, issues | `handoff/`, `handoffs/`, `plans/`, `tickets/`, `issues/`, `next_step_*.md`, `session_*_handoff.md` |
-| 7 | `deliverables/` | External-facing artifacts, client drafts, published outputs | `client_drafts/`, `delivery/`, `site/`, `*.pdf`, `*.pptx`, `*.xlsx`, published `.html` |
-
-**Reserved top-level file**: only `docs/README.md` (index). No other loose files.
-
-**Exclude from `docs/` entirely**: `__pycache__/` (add to `.gitignore`), `.py` scripts (move to `scripts/`), `.DS_Store`.
-
-## Phase 1: Survey
-
-Walk the target `docs/` directory. For every file and subdir, classify it.
-
-### 1a. Inventory
-- Glob all files under `docs/` recursively. Record full path, extension, size, mtime.
-- List all subdirs at depth 1. Flag any not in the 7-bucket list.
-- List all loose files at `docs/*.{md,json,pdf,pptx,xlsx,html}`. Flag them.
-
-### 1b. Classification heuristic
-
-Apply in order — first match wins:
-
-1. **Filename regex** (fastest, most reliable):
-   - `^\d{4}-.*\.md$` → `decisions/` (ADR convention)
-   - `^go_no_go` | `^v\d+_vs_v\d+` → `decisions/`
-   - `^analysis_` | `^discovery_` | `^brainstorm_` → `analysis/`
-   - `^review_` | `_audit(_report)?\.md$` | `^next_(stage_|step_)` → `reviews/`
-   - `^session[_-]?\d+.*handoff` | `_handoff\.md$` | `_prompt\.md$` | `^plan_` → `handoffs/`
-   - `^retrain_` | `^rerun` | `^(run|qa|validate)_` | `.*_guide\.md$` → `runbooks/`
-   - `^(bq|snowflake|data|schema)_` | `_dictionary\.md$` | `_reference\.md$` → `references/`
-   - `\.(pdf|pptx|xlsx|docx)$` or `^client_` → `deliverables/` (unless filename matches a reference pattern like `*_dictionary.xlsx`)
-
-2. **Subdir hint**: If the file is already inside a subdir (e.g. `architecture/foo.md`), map the subdir to its bucket via the "Common absorbs" column, then propose the new path preserving the filename.
-
-3. **Content peek** (fallback — read first 50 lines):
-   - `## Status` + `## Decision` headers → `decisions/`
-   - `## Findings` or `## Methodology` → `analysis/`
-   - "handoff", "next session", "resume work" language → `handoffs/`
-   - "retrain", "rerun", "how to run" → `runbooks/`
-   - Tables of schemas/fields/columns with no narrative → `references/`
-   - Mostly prose addressed to an external reader → `deliverables/`
-
-4. **Unclassifiable**: mark as `UNKNOWN` and surface to the user in the report.
-
-### 1c. Violation detection
-
-Flag:
-- **Loose files**: any non-`README.md` file at `docs/*` depth 1
-- **Non-canonical subdirs**: subdirs not in the 7-bucket list (e.g. `site/`, `tickets/`, `validation/`)
-- **Singular/plural duplicates**: pairs like `handoff/` + `handoffs/`, `review/` + `reviews/`, `plan/` + `plans/`
-- **Non-doc artifacts**: `__pycache__/`, `.py`, `.DS_Store`, `.pyc`, `.ipynb_checkpoints/`
-- **Case duplicates**: `Handoffs/` alongside `handoffs/`
-- **Version ladders**: multiple files like `foo_v2.md`, `foo_v25.md`, `foo_v26.md` — propose keeping latest in bucket, archiving earlier to `<bucket>/archive/`
-
-### 1d. Staleness detection
-
-For each `.md` file, compute staleness signals:
-- **Age**: mtime older than 90 days
-- **Orphan**: no inbound markdown-link references from `docs/README.md` or any other `.md` file in the project (grep `](.*<filename>)`)
-- **Superseded**: a file `foo_vN.md` exists with N > this file's version suffix
-- **Reference rot**: file mentions a function/file path (regex `\w+/[\w/]+\.py`) that no longer exists in the project — grep to verify
-
-Flag as "candidate stale" if 2+ signals hit. **Never auto-delete**. User reviews.
-
-### 1e. Cross-cutting checks
-
-- `analysis_principles.md` (or similar read-me-first normative doc): propose `references/` as primary home. Surface short normative rules as candidates for promotion to `~/.claude/projects/<slug>/memory/lessons.md` in the recommendations section.
-- Binary deliverables without a companion `.provenance.md`: flag per data-integrity norms.
-
-## Phase 2: Report
-
-Write the audit report to `~/Documents/<project-name>_docs_audit.md`. Structure:
-
-```
-# docs/ Taxonomy Audit — <project-name>
-Generated: <date>
-Source: <abs-path-to-docs>
-
-## Summary
-- Total files: N
-- Loose files at docs/*: N
-- Non-canonical subdirs: N
-- Singular/plural duplicate pairs: N
-- Non-doc artifacts: N
-- Candidate stale files: N
-- Unclassifiable (UNKNOWN): N
-
-## Proposed migration table
-| Current path | Proposed path | Bucket | Confidence | Reason |
-|---|---|---|---|---|
-| docs/analysis_foo.md | docs/analysis/analysis_foo.md | analysis | high | filename regex |
-| ... |
-
-## Violations
-### Loose files at docs/* (N)
-- list
-
-### Non-canonical subdirs (N)
-- `docs/site/` → propose `deliverables/site/` (or delete if stale)
-
-### Duplicate folders (N)
-- `docs/handoff/` + `docs/handoffs/` → merge into `handoffs/`
-
-### Non-doc artifacts (N)
-- `docs/__pycache__/` → delete, add to `.gitignore`
-
-## Candidate stale files (N)
-| Path | Age | Orphan? | Superseded by | Reference rot |
-|---|---|---|---|---|
-
-## Unclassifiable (N)
-Files needing manual bucket assignment. Content snippet included.
-
-## Recommendations
-- (e.g.) Extract short normative rules from `references/analysis_principles.md` into `~/.claude/projects/<slug>/memory/lessons.md` as a follow-up.
-- (e.g.) Version ladder `foo_v2/v25/v26.md` → keep latest, archive rest.
-- (e.g.) Create `docs/README.md` index once migration completes.
-
-## Next step
-Run the migrate pass: user reviews this report, then invokes the skill with `--migrate` to generate a feature branch with `git mv` commands.
-```
-
-## Phase 3: Approve
-
-Present the report path to the user. Wait for explicit approval before generating migration commands. User may:
-- Edit the report to change proposed destinations
-- Reject specific moves
-- Mark stale candidates for archive vs delete vs keep
-- Resolve UNKNOWN entries
-
-## Phase 4: Migrate (via `--migrate` flag)
-
-**This phase never runs on `main`.** It operates on a dedicated branch and produces a PR for human review.
-
-1. **Create branch**: `chore/docs-taxonomy-<YYYY-MM-DD>` from the project's default branch.
-2. **Generate `git mv` commands** from the (approved) migration table. Create missing target dirs with `mkdir -p` first.
-3. **Apply moves** on the branch. Commit in logical groups (one commit per bucket is readable).
-4. **Markdown-link rewrite pass**: grep all `.md` files in the project for references to old paths (`](old/path)`, `[[old/path]]`). Rewrite to new paths. Commit as "fix: rewrite internal links after docs taxonomy migration."
-5. **Handle non-doc artifacts**: delete `__pycache__/`, add ignore entries, move `.py` scripts to `scripts/` (or wherever the project keeps them — ask if unclear).
-6. **Generate `docs/README.md`** index: one section per bucket, one-line entries per file with the first `# heading` as the display name.
-7. **Surface branch + summary**: report N files moved, M links rewritten, K artifacts cleaned. Leave the branch pushed; user opens the PR.
-
-**Never**:
-- Squash-merge into `main` automatically
-- Force-push
-- Run on a dirty working tree (abort if `git status` is not clean)
-- Move files across repository boundaries
-
-## Phase 5: Verify
-
-After the migration branch is created:
-- Confirm zero loose `.md` at `docs/*` (except `README.md`)
-- Confirm zero subdirs outside the 7-bucket list
-- Confirm zero non-doc artifacts
-- Run `grep -rn '](' docs/` and scan for broken relative links (link target does not exist)
-- Run `git log --oneline <branch>` and confirm commits are cleanly separated by bucket
-- Present a before/after counts table to the user
-
-## Heuristic confidence tiers
-
-When labeling rows in the migration table:
-- **high**: filename regex matched a strong pattern (ADR numbering, `review_*`, `analysis_*`, `_handoff.md`)
-- **medium**: subdir-hint match OR content-peek matched a strong header
-- **low**: content-peek was ambiguous; user should double-check
-- **unknown**: no heuristic fired; surface to user
-
-Rows at `low`/`unknown` confidence block the `--migrate` pass until the user resolves them in the report.
