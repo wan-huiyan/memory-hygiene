@@ -78,6 +78,11 @@ if (existsSync(packageJsonPath)) {
   files.packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
 }
 
+const versionFilePath = resolve(ROOT, "VERSION");
+if (existsSync(versionFilePath)) {
+  files.versionFile = readFileSync(versionFilePath, "utf-8").trim();
+}
+
 // Discover the plugin's SKILL.md. In the canonical layout it lives at
 // plugins/<name>/SKILL.md (next to the plugin's .claude-plugin/plugin.json).
 // Fall back to a root SKILL.md for repos using the legacy flat layout.
@@ -289,6 +294,66 @@ describe("Manifest consistency", () => {
       });
     });
   }
+
+  // ---------------------------------------------------------------------------
+  // Version consistency — every manifest that declares a version must agree
+  // with plugin.json (the authoritative source). This is the check whose
+  // absence let package.json ship at 3.1.0 while everything else said 3.3.0.
+  // ---------------------------------------------------------------------------
+
+  describe("Version consistency", () => {
+    const canonicalVersion = files.pluginJson?.version;
+
+    it("plugin.json declares the canonical version", () => {
+      assert.ok(canonicalVersion, "plugin.json must declare a version");
+    });
+
+    if (files.versionFile !== undefined) {
+      it("VERSION file matches plugin.json version", () => {
+        assert.equal(
+          files.versionFile,
+          canonicalVersion,
+          `VERSION file (${files.versionFile}) must match plugin.json version (${canonicalVersion})`
+        );
+      });
+    }
+
+    if (files.packageJson) {
+      it("package.json version matches plugin.json version", () => {
+        assert.equal(
+          files.packageJson.version,
+          canonicalVersion,
+          `package.json version (${files.packageJson.version}) must match plugin.json version (${canonicalVersion})`
+        );
+      });
+    }
+
+    if (files.marketplaceJson?.plugins?.[0]) {
+      it("marketplace.json plugin version matches plugin.json version", () => {
+        assert.equal(
+          files.marketplaceJson.plugins[0].version,
+          canonicalVersion,
+          `marketplace.json plugin version (${files.marketplaceJson.plugins[0].version}) must match plugin.json version (${canonicalVersion})`
+        );
+      });
+    }
+
+    if (files.rootSkillMd) {
+      it("SKILL.md header version (vX.Y) matches plugin.json major.minor", () => {
+        const headerMatch = files.rootSkillMd.match(/^#\s[^\n]*\bv(\d+\.\d+)/m);
+        assert.ok(
+          headerMatch,
+          "SKILL.md must have a top-level heading containing a vX.Y version"
+        );
+        const majorMinor = canonicalVersion.split(".").slice(0, 2).join(".");
+        assert.equal(
+          headerMatch[1],
+          majorMinor,
+          `SKILL.md header version v${headerMatch[1]} must match plugin.json major.minor v${majorMinor}`
+        );
+      });
+    }
+  });
 
   if (files.rootSkillMd) {
     describe("SKILL.md", () => {
