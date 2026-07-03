@@ -1,0 +1,98 @@
+{
+  "skill_name": "memory-hygiene",
+  "version": "3.3.0",
+  "description": "Trigger classification suite for the memory-hygiene skill. Positive prompts should activate the skill (auditing/cleaning Claude Code's persistent memory: MEMORY.md, memory files, lessons, ADRs, docs/ taxonomy). Negative prompts are near-misses that share vocabulary (memory, clean up, audit, prune) but target code or runtime concerns the skill must NOT trigger on.",
+  "triggers": [
+    {
+      "id": "pos-clean-memory-files",
+      "prompt": "clean up my memory files",
+      "should_trigger": true,
+      "category": "explicit-cleanup",
+      "notes": "Direct request matching the skill description's core verb + object."
+    },
+    {
+      "id": "pos-audit-claude-md",
+      "prompt": "audit my CLAUDE.md and memory setup",
+      "should_trigger": true,
+      "category": "explicit-audit",
+      "notes": "CLAUDE.md retrieval-strategy audit is a first-class check (frontmatter: 'audit, or review their memory')."
+    },
+    {
+      "id": "pos-prune-stale-lessons",
+      "prompt": "prune stale lessons from my lessons.md",
+      "should_trigger": true,
+      "category": "staleness",
+      "notes": "Staleness detection and lesson dedup are core workflows."
+    },
+    {
+      "id": "pos-skill-name",
+      "prompt": "run a memory hygiene audit on this project",
+      "should_trigger": true,
+      "category": "skill-name",
+      "notes": "References the skill name directly."
+    },
+    {
+      "id": "pos-memory-messy",
+      "prompt": "my memory is getting messy, can you sort it out?",
+      "should_trigger": true,
+      "category": "frontmatter-phrase",
+      "notes": "Verbatim trigger phrase listed in the SKILL.md frontmatter description."
+    },
+    {
+      "id": "pos-memory-md-limit",
+      "prompt": "MEMORY.md is close to the 200-line limit — help me slim it down",
+      "should_trigger": true,
+      "category": "truncation",
+      "notes": "Frontmatter condition (2): MEMORY.md approaching or exceeding the 200-line limit."
+    },
+    {
+      "id": "pos-dedupe-lessons",
+      "prompt": "deduplicate my lessons, I think there are number collisions",
+      "should_trigger": true,
+      "category": "duplicates",
+      "notes": "Frontmatter phrase 'deduplicate' plus duplicate lesson numbers check."
+    },
+    {
+      "id": "pos-review-adrs",
+      "prompt": "review my ADRs — I think two of them share the same number",
+      "should_trigger": true,
+      "category": "adr",
+      "notes": "Frontmatter condition (4): ADR numbering conflicts."
+    },
+    {
+      "id": "neg-clean-function",
+      "prompt": "clean up this function, it's way too long",
+      "should_trigger": false,
+      "category": "code-refactoring",
+      "notes": "Shares 'clean up' but targets source code, not memory files."
+    },
+    {
+      "id": "neg-memory-leak",
+      "prompt": "there's a memory leak in my app, can you find it?",
+      "should_trigger": false,
+      "category": "runtime-memory",
+      "notes": "'Memory' here means process/heap memory, not Claude Code's persistent memory system."
+    },
+    {
+      "id": "neg-audit-dependency",
+      "prompt": "audit this dependency for known vulnerabilities",
+      "should_trigger": false,
+      "category": "security-audit",
+      "notes": "Shares 'audit' but is a security/supply-chain task, not a memory audit."
+    },
+    {
+      "id": "neg-reduce-memory-usage",
+      "prompt": "reduce the memory usage of this Python script",
+      "should_trigger": false,
+      "category": "performance",
+      "notes": "Performance optimization of RAM usage — near-miss on 'memory'."
+    },
+    {
+      "id": "neg-prune-branches",
+      "prompt": "prune my old git branches",
+      "should_trigger": false,
+      "category": "git-housekeeping",
+      "notes": "Shares 'prune' but targets git refs, not stale lessons or memory files."
+    }
+  ]
+}
