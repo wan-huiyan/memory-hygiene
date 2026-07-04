@@ -1,7 +1,7 @@
 # memory-hygiene
 [![GitHub release](https://img.shields.io/github/v/release/wan-huiyan/memory-hygiene)](https://github.com/wan-huiyan/memory-hygiene/releases) [![Claude Code](https://img.shields.io/badge/Claude_Code-skill-orange)](https://claude.com/claude-code) [![license](https://img.shields.io/github/license/wan-huiyan/memory-hygiene)](LICENSE) [![last commit](https://img.shields.io/github/last-commit/wan-huiyan/memory-hygiene)](https://github.com/wan-huiyan/memory-hygiene/commits)
 
-Audit and optimize Claude Code's persistent memory system — axioms, phase templates, MEMORY.md, lessons, memory files, and ADRs — using a research-backed tiered architecture with promotion/demotion lifecycle and agency-aware staleness detection. **v3.1** adds a peer workflow for auditing a project's `docs/` directory against a canonical 7-bucket taxonomy.
+Audit and optimize Claude Code's persistent memory system — axioms, phase templates, MEMORY.md, lessons, memory files, and ADRs — using a research-backed tiered architecture with promotion/demotion lifecycle and agency-aware staleness detection. **v3.3** adds a label-table integrity audit and a peer workflow for auditing a project's `docs/` directory against a canonical 7-bucket taxonomy.
 
 ## The Problem
 
@@ -114,7 +114,7 @@ git clone https://github.com/wan-huiyan/memory-hygiene.git ~/.cursor/skills/memo
 - **ADR best practices** — numbering, bidirectional links, Confirmation sections, index file, gap stubs
 - **Cross-project scope review** — suggests promoting frequently-reused project lessons to global (with user approval)
 - **Writing quality gate** — three-question check before creating new memory files
-- **docs/ taxonomy audit (v3.1)** — classifies every file in a project's `docs/` against a 7-bucket canonical taxonomy (decisions, runbooks, analysis, references, reviews, handoffs, deliverables); detects loose files, duplicate folders (`handoff/` + `handoffs/`), stale candidates, and non-doc artifacts. Produces a human-reviewable audit report. Never auto-moves — `--migrate` pass generates a feature branch with `git mv` commands plus link-rewrite for PR review.
+- **docs/ taxonomy audit (v3.3)** — classifies every file in a project's `docs/` against a 7-bucket canonical taxonomy (decisions, runbooks, analysis, references, reviews, handoffs, deliverables); detects loose files, duplicate folders (`handoff/` + `handoffs/`), stale candidates, and non-doc artifacts. Produces a human-reviewable audit report. Never auto-moves — `--migrate` pass generates a feature branch with `git mv` commands plus link-rewrite for PR review.
 
 ## How It Works
 
@@ -198,7 +198,7 @@ cp ~/.claude/templates/phase_*.md new-project/.claude/rules/
 
 ## Comparison
 
-| | Without skill | With memory-hygiene v3.1 |
+| | Without skill | With memory-hygiene v3.3 |
 |---|---|---|
 | Critical lessons ignored | Buried at line 617 of 1400-line file | Promoted to axioms (≤12, always loaded) or phase templates (auto on file match) |
 | Phase-specific rules | Either always loaded (wastes attention) or demoted (gets missed) | Auto-activate via `.claude/rules/` path globs — zero attention cost when irrelevant |
@@ -280,6 +280,9 @@ See [docs/research-best-practices.md](docs/research-best-practices.md) for the f
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.3.0 | 2026-05-15 | Label-table integrity audit (§1i) — catches fabricated code→label tables in `lessons.md` / `feedback_*.md` / `reference_*.md`; project `docs/` taxonomy audit & migration (§1j) — 7-bucket canonical taxonomy defined here as source-of-truth, with review-first `git mv` migration branch |
+| 3.2.0 | 2026-05-15 | In-repo `MEMORY.md` tier detection (§1a2) — scans both auto-memory and in-repo `MEMORY.md` (project root or `docs/`), reported as separate T1 / T1-repo tiers in the audit |
+| 3.1.0 | 2026-04-24 | Feedback lifecycle detection (§1c2) — classifies each `feedback_*.md` as Incorporated / Pending / Dormant / Superseded and emits a `feedback_incorporation_rate` metric for downstream consumers |
 | 3.0.0 | 2026-04-15 | Phase template system (T1.5 path-scoped rules, `~/.claude/templates/`), three-category axiom classification (Universal/Role/Phase), 12-item Cowan cap with structured promotion/demotion lifecycle, agency-aware staleness detection, 2025 research updates (EMNLP, Chroma Context Rot) |
 | 2.1.0 | 2026-04-10 | Axioms tier (T0 behavioral overrides), promotion criteria, CLAUDE.md retrieval strategy audit, "Lost in the Middle" awareness, academic foundations |
 | 2.0.0 | 2026-03-31 | Tiered loading audit, session compression, staleness detection, ADR best practices, writing quality gate, cross-project scope review |

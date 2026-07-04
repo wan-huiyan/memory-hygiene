@@ -20,6 +20,16 @@ Claude Code has four distinct memory layers ([official docs](https://code.claude
 
 **Path-scoped rules** (`.claude/rules/*.md`) support YAML `paths:` frontmatter for conditional loading — only loaded when Claude touches matching files.
 
+### Unverified internals — re-check after Claude Code updates
+
+Some claims in this section come from community reverse-engineering rather than official documentation. Reverse-engineered behavior can change silently in any Claude Code release. Status as of 2026-07-03:
+
+| Claim | Status | How to re-verify |
+|-------|--------|------------------|
+| MEMORY.md load limit: first 200 lines / 25KB | **Official-docs-backed** — documented at [code.claude.com/docs/en/memory](https://code.claude.com/docs/en/memory) | Re-read the official memory docs page after each Claude Code release and confirm the limit figures are still stated. |
+| Auto Dream consolidation: 4-phase flow (Orient → Gather Signal → Consolidate → Prune and Index) and trigger gates (24+ hours elapsed AND 5+ sessions completed) | **Reverse-engineered** — sourced from the [Piebald-AI extracted system prompt](https://github.com/Piebald-AI/claude-code-system-prompts), not official docs | Diff the extracted-prompts repo against the latest Claude Code release; check whether official docs have since documented consolidation behavior. |
+| Exact auto-memory path: `~/.claude/projects/<project>/memory/MEMORY.md` (+ topic files alongside it) | **Reverse-engineered / observed** — path layout inferred from local inspection, not guaranteed by official docs | In a scratch project on the current Claude Code version, ask Claude to save a memory, then inspect `~/.claude/projects/` to confirm the layout is unchanged. |
+
 ---
 
 ## 2. How Other AI Agents Handle Memory
