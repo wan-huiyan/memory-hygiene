@@ -3,9 +3,11 @@ name: memory-hygiene
 description: "Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, and ADRs. Use this skill when: (1) the user asks to clean up, audit, or review their memory/lessons/ADRs, (2) MEMORY.md is approaching or exceeding the 200-line limit, (3) lesson files have grown large and may contain duplicates, (4) you notice ADR numbering conflicts, (5) memory files seem stale or contradicted by current code, or (6) the user says things like 'my memory is getting messy', 'clean up my lessons', 'deduplicate', 'review ADRs', 'memory audit'. Also proactively suggest running this after 10+ sessions on a project, or when MEMORY.md triggers a truncation warning."
 ---
 
-# Memory Hygiene v3.3 — Audit & Cleanup
+# Memory Hygiene v3.4 — Audit & Cleanup
 
 This skill audits Claude Code's persistent knowledge stores (axioms, MEMORY.md — both auto-memory and in-repo, memory topic files, lessons, phase templates, ADRs, and the project `docs/` taxonomy) for structural problems that degrade future session quality. It produces a structured report, gets user approval, then executes fixes.
+
+v3.4 fixes the **cross-plugin script lookup in §1i**. The `label_audit.py` call reached for `~/.claude/skills/session-handoff/scripts/` only. On a plugin install that path does not exist — the script lives under `~/.claude/plugins/cache/<marketplace>/session-handoff/<version>/scripts/` — so the sub-check resolved to nothing, logged "not installed", and the audit still reported clean. §1i now resolves the script across all three install roots and reports a miss as a skipped check.
 
 v3.3 adds **label-table integrity audit** (§1i) and **project `docs/` taxonomy audit** (§1j). The 7-bucket taxonomy that `session-handoff` dispatches to is now defined here as source-of-truth — previously `session-handoff` referenced "memory-hygiene v3.1" for this but the definition lived nowhere. §1i catches fabricated code→label tables in `lessons.md` / `feedback_*.md` / `reference_*.md` that bypass the author-side gate `session-handoff` runs in its Phase 0.
 
@@ -248,7 +250,35 @@ Glob `docs/decisions/*.md` (or wherever the project keeps ADRs). Check:
 
 **Detect.** Any markdown table whose first column is a short code (≤4 chars, ALL-CAPS or numeric) and second column is a sentence-style description, where the row lacks an inline tag (`[verified: <path>:<line>]` or `[HYPOTHESIS]`).
 
-**Tool.** Invoke `~/.claude/skills/session-handoff/scripts/label_audit.py` against each scan target. If the skill is absent, log "label_audit not installed" and continue (graceful degrade — same pattern session-handoff uses for the reverse-lint call).
+**Tool.** Invoke `label_audit.py` from the [`session-handoff`](https://github.com/wan-huiyan/session-handoff) skill against each scan target.
+
+That script belongs to a *different* plugin, and there is no single path that resolves under every install method. A plugin install puts it at `~/.claude/plugins/cache/<marketplace>/session-handoff/<version>/scripts/label_audit.py`, not at `~/.claude/skills/session-handoff/scripts/label_audit.py`, so reaching for the `~/.claude/skills/` root alone finds nothing and the whole sub-check silently does nothing while the audit still reads clean. Resolve across all three install roots before invoking:
+
+```bash
+# Resolve across all three install roots. A plugin install creates neither of the first two.
+# $CLAUDE_PLUGIN_ROOT points at THIS plugin's own root, so it can only hit in a dev checkout
+# where session-handoff's scripts sit beside ours; the [ -f ] guard makes it a no-op otherwise.
+S="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/scripts/label_audit.py}"
+[ -f "$S" ] || S="$HOME/.claude/skills/session-handoff/scripts/label_audit.py"
+[ -f "$S" ] || S="$(find -L "$HOME/.claude/plugins/cache" -mindepth 5 -maxdepth 5 \
+    -path '*/session-handoff/*/scripts/label_audit.py' 2>/dev/null \
+  | awk -F/ '{print $(NF-2)"\t"$0}' | sort -V -k1,1 | tail -1 | cut -f2-)"
+
+if [ -f "$S" ]; then
+  python3 "$S" "$TARGET"
+else
+  echo "label_audit.py: not found - tried \$CLAUDE_PLUGIN_ROOT/scripts/, ~/.claude/skills/session-handoff/scripts/, and the plugin cache"
+fi
+```
+
+Four details in that block are not optional — each one comes from a real defect:
+
+- **Rank on the version segment alone** (that is what the `awk` does). The marketplace segment comes *before* the version in the path, so a plain `sort -V` over whole paths ranks by marketplace name and lets `aaa-mkt/2.5.0` lose to `zzz-mkt/1.0.0`.
+- **Use `find`, not a shell glob.** zsh's `nomatch` fails a non-matching glob at expansion time, before `2>/dev/null` can apply, so the user sees a raw shell error.
+- **Guard before redirecting.** If you send the output to a file, put the `> "$OUT"` *inside* the `if [ -f "$S" ]` branch. The shell creates and truncates the target before the command runs, so an unguarded call leaves a 0-byte file that a later step reads as a real audit record.
+- **Say what was tried, never a bare "not installed".** A failed lookup is not evidence about install state, and that exact wording has already made a person believe an installed skill was absent.
+
+If the script genuinely is not there, print the "not found" line and continue (graceful degrade) — but carry the miss into the Phase 2 report as a skipped check, so §1i never reads clean when it did not run.
 
 **Never auto-tag.** Surface candidates with file:line and let the user verify against the authoritative source (axioms.md § Authoritative Labels). Tagging a guess as `[verified: ...]` is worse than leaving it untagged.
 
@@ -352,7 +382,7 @@ Present findings as a structured audit report. Group by severity:
 ### Label-Table Integrity (§1i)
 - N candidate fabricated-label rows across lessons / feedback / references
 - Files affected with line refs (do not propose auto-tags)
-- `label_audit.py` available: yes / no
+- `label_audit.py` resolved: <path> — or "not found, §1i SKIPPED (tried $CLAUDE_PLUGIN_ROOT/scripts/, ~/.claude/skills/session-handoff/scripts/, plugin cache)"
 
 ### Project `docs/` Taxonomy (§1j)
 - N loose files at `docs/*` (list)

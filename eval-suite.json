@@ -1,6 +1,6 @@
 {
   "skill_name": "memory-hygiene",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "description": "Trigger classification suite for the memory-hygiene skill. Positive prompts should activate the skill (auditing/cleaning Claude Code's persistent memory: MEMORY.md, memory files, lessons, ADRs, docs/ taxonomy). Negative prompts are near-misses that share vocabulary (memory, clean up, audit, prune) but target code or runtime concerns the skill must NOT trigger on.",
   "triggers": [
     {
