@@ -10,7 +10,7 @@
       "name": "memory-hygiene",
       "source": "./plugins/memory-hygiene",
       "description": "Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, ADRs — plus project docs/ taxonomy hygiene",
-      "version": "3.3.0"
+      "version": "3.4.0"
     }
   ]
 }

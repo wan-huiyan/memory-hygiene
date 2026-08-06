@@ -1,7 +1,7 @@
 # memory-hygiene
 [![GitHub release](https://img.shields.io/github/v/release/wan-huiyan/memory-hygiene)](https://github.com/wan-huiyan/memory-hygiene/releases) [![Claude Code](https://img.shields.io/badge/Claude_Code-skill-orange)](https://claude.com/claude-code) [![license](https://img.shields.io/github/license/wan-huiyan/memory-hygiene)](LICENSE) [![last commit](https://img.shields.io/github/last-commit/wan-huiyan/memory-hygiene)](https://github.com/wan-huiyan/memory-hygiene/commits)
 
-Audit and optimize Claude Code's persistent memory system — axioms, phase templates, MEMORY.md, lessons, memory files, and ADRs — using a research-backed tiered architecture with promotion/demotion lifecycle and agency-aware staleness detection. **v3.3** adds a label-table integrity audit and a peer workflow for auditing a project's `docs/` directory against a canonical 7-bucket taxonomy.
+Audit and optimize Claude Code's persistent memory system — axioms, phase templates, MEMORY.md, lessons, memory files, and ADRs — using a research-backed tiered architecture with promotion/demotion lifecycle and agency-aware staleness detection. **v3.4** fixes the cross-plugin lookup of `session-handoff`'s `label_audit.py`, which silently found nothing on a plugin install. **v3.3** added a label-table integrity audit and a peer workflow for auditing a project's `docs/` directory against a canonical 7-bucket taxonomy.
 
 ## The Problem
 
@@ -198,7 +198,7 @@ cp ~/.claude/templates/phase_*.md new-project/.claude/rules/
 
 ## Comparison
 
-| | Without skill | With memory-hygiene v3.3 |
+| | Without skill | With memory-hygiene v3.4 |
 |---|---|---|
 | Critical lessons ignored | Buried at line 617 of 1400-line file | Promoted to axioms (≤12, always loaded) or phase templates (auto on file match) |
 | Phase-specific rules | Either always loaded (wastes attention) or demoted (gets missed) | Auto-activate via `.claude/rules/` path globs — zero attention cost when irrelevant |
@@ -280,6 +280,7 @@ See [docs/research-best-practices.md](docs/research-best-practices.md) for the f
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.4.0 | 2026-08-06 | Fixed the cross-plugin script lookup in §1i — `label_audit.py` was reached through the `~/.claude/skills/session-handoff/` root alone, which does not exist on a plugin install, so the label-table check silently did nothing while the audit still read clean. It now resolves across `$CLAUDE_PLUGIN_ROOT`, `~/.claude/skills/`, and the plugin cache (version-ranked), and a miss is reported as a skipped check naming every path tried instead of a bare "not installed" |
 | 3.3.0 | 2026-05-15 | Label-table integrity audit (§1i) — catches fabricated code→label tables in `lessons.md` / `feedback_*.md` / `reference_*.md`; project `docs/` taxonomy audit & migration (§1j) — 7-bucket canonical taxonomy defined here as source-of-truth, with review-first `git mv` migration branch |
 | 3.2.0 | 2026-05-15 | In-repo `MEMORY.md` tier detection (§1a2) — scans both auto-memory and in-repo `MEMORY.md` (project root or `docs/`), reported as separate T1 / T1-repo tiers in the audit |
 | 3.1.0 | 2026-04-24 | Feedback lifecycle detection (§1c2) — classifies each `feedback_*.md` as Incorporated / Pending / Dormant / Superseded and emits a `feedback_incorporation_rate` metric for downstream consumers |
