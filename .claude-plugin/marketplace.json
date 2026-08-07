@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "wan-huiyan-memory-hygiene",
-  "description": "Single-plugin marketplace for memory-hygiene — Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, ADRs — plus project docs/ taxonomy hygiene",
+  "description": "Single-plugin marketplace for memory-hygiene \u2014 Audit and clean up Claude Code's persistent memory system \u2014 MEMORY.md, memory files, lessons, ADRs \u2014 plus project docs/ taxonomy hygiene",
   "owner": {
     "name": "wan-huiyan"
   },
@@ -9,8 +9,8 @@
     {
       "name": "memory-hygiene",
       "source": "./plugins/memory-hygiene",
-      "description": "Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, ADRs — plus project docs/ taxonomy hygiene",
-      "version": "3.4.0"
+      "description": "Audit and clean up Claude Code's persistent memory system \u2014 MEMORY.md, memory files, lessons, ADRs \u2014 plus project docs/ taxonomy hygiene",
+      "version": "3.5.0"
     }
   ]
 }

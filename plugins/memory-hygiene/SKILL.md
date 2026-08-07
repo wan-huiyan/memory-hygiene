@@ -3,9 +3,11 @@ name: memory-hygiene
 description: "Audit and clean up Claude Code's persistent memory system — MEMORY.md, memory files, lessons, and ADRs. Use this skill when: (1) the user asks to clean up, audit, or review their memory/lessons/ADRs, (2) MEMORY.md is approaching or exceeding the 200-line limit, (3) lesson files have grown large and may contain duplicates, (4) you notice ADR numbering conflicts, (5) memory files seem stale or contradicted by current code, or (6) the user says things like 'my memory is getting messy', 'clean up my lessons', 'deduplicate', 'review ADRs', 'memory audit'. Also proactively suggest running this after 10+ sessions on a project, or when MEMORY.md triggers a truncation warning."
 ---
 
-# Memory Hygiene v3.4 — Audit & Cleanup
+# Memory Hygiene v3.5 — Audit & Cleanup
 
 This skill audits Claude Code's persistent knowledge stores (axioms, MEMORY.md — both auto-memory and in-repo, memory topic files, lessons, phase templates, ADRs, and the project `docs/` taxonomy) for structural problems that degrade future session quality. It produces a structured report, gets user approval, then executes fixes.
+
+v3.5 adds **mechanism-claim integrity** (§1k). §1i catches a fabricated *label*; §1k catches a fabricated *cause*. On 2026-08-07 a memory recorded a PR that deleted 5,081 lines of four sessions' merged work and blamed *"a branch cut before those merges and never rebased"* — measured afterwards, the branch's parent WAS the newest commit on main and a rebase would have been a no-op. The memory was internally coherent, well written, about a real incident, and routed every reader to a check that PASSES. §1k flags incident memories that assert a cause with no way to re-derive it, catches the mechanism restated in `description:` and the MEMORY.md line (what recall matches on), and reports groups of memories about the same incident whose causes conflict.
 
 v3.4 fixes the **cross-plugin script lookup in §1i**. The `label_audit.py` call reached for `~/.claude/skills/session-handoff/scripts/` only. On a plugin install that path does not exist — the script lives under `~/.claude/plugins/cache/<marketplace>/session-handoff/<version>/scripts/` — so the sub-check resolved to nothing, logged "not installed", and the audit still reported clean. §1i now resolves the script across all three install roots and reports a miss as a skipped check.
 
@@ -282,6 +284,51 @@ If the script genuinely is not there, print the "not found" line and continue (g
 
 **Never auto-tag.** Surface candidates with file:line and let the user verify against the authoritative source (axioms.md § Authoritative Labels). Tagging a guess as `[verified: ...]` is worse than leaving it untagged.
 
+#### 1k. Mechanism claims in incident memories (NEW in v3.5)
+
+**Why.** §1i catches a fabricated *label*. This catches a fabricated *cause*. An
+incident memory — "X happened because Y" — is the most re-read kind there is, and
+its **mechanism sentence is what a future session acts on**. If that sentence is
+wrong, the memory is worse than absent: it routes the reader to a check that
+passes and they conclude everything is fine.
+
+Observed 2026-08-07. A memory recorded a PR that deleted 5,081 lines of four
+sessions' merged work, and attributed it to *"a branch cut before those merges and
+never rebased."* Measured afterwards, the branch's parent **was** the newest commit
+on `main` — `git merge-base --is-ancestor origin/main HEAD` returned **true** and a
+rebase would have been a no-op. The real cause was a stale *tree* under a current
+*pointer*. Anyone following the memory would have run "am I behind main?", got
+**no**, and stopped. Nothing in the memory system flagged it, because it is
+internally coherent, well written, and about a real incident.
+
+**What to flag.** For each memory whose body describes an incident (look for a
+dated event, a PR/commit id, or a "why:" causal clause), check whether it carries
+**a way to re-derive the mechanism**:
+
+- a command, query or file:line a reader can run to confirm the cause — not merely
+  a citation of where the incident is discussed
+- or an explicit hedge (`suspected`, `not confirmed`, `one plausible cause`)
+
+Flag as **unverifiable-mechanism** any incident memory that asserts a cause with
+neither. These are candidates for a human to re-derive or hedge; **never rewrite
+the cause yourself from inference** — that is how the wrong one got written.
+
+**Two things to check that the generic staleness pass misses:**
+
+1. **The `description:` and the `MEMORY.md` one-liner carry the mechanism too**,
+   and they are what recall matches on. Correcting only the body leaves the wrong
+   cause in the two places most likely to be read. Grep the mechanism's
+   distinctive phrase across the body, the frontmatter and the index line.
+2. **Two memories can describe the SAME incident from different sessions** and
+   disagree about why. Group incident memories by their PR/commit id or date and
+   report any group whose mechanism sentences conflict — the conflict is the
+   finding, and the newer one is not automatically right.
+
+**When a mechanism is corrected, keep the retired claim visible as a QUOTE beside
+the correction**, never delete it silently — the wrong version is already in
+circulation and a reader who half-remembers it needs to see it retired. This is
+the same allowlist-plus-correction shape §1i uses for retired labels.
+
 #### 1j. Project `docs/` taxonomy audit (NEW in v3.3)
 
 **Why.** `session-handoff` dispatches output across a canonical 7-bucket `docs/` taxonomy. Without a periodic audit, projects accumulate loose files at `docs/*`, non-canonical subdirs, or singular/plural duplicates (`handoff/` + `handoffs/`). This sub-check is the source-of-truth definition that `session-handoff` references.
@@ -383,6 +430,11 @@ Present findings as a structured audit report. Group by severity:
 - N candidate fabricated-label rows across lessons / feedback / references
 - Files affected with line refs (do not propose auto-tags)
 - `label_audit.py` resolved: <path> — or "not found, §1i SKIPPED (tried $CLAUDE_PLUGIN_ROOT/scripts/, ~/.claude/skills/session-handoff/scripts/, plugin cache)"
+
+### Mechanism Claims in Incident Memories (§1k)
+- N incident memories asserting a cause with no way to re-derive it (list file:line and the cause sentence)
+- N whose `description:` / MEMORY.md line states a different or stale cause than the body
+- N groups of memories about the same incident whose mechanisms conflict (list the group)
 
 ### Project `docs/` Taxonomy (§1j)
 - N loose files at `docs/*` (list)
