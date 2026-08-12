@@ -1,12 +1,49 @@
 name: Release on version bump
 
-# Cuts a GitHub Release whenever the VERSION file changes on main and no
-# matching release exists yet. Keeps releases from silently drifting behind
-# the shipped version. Bump VERSION in the same PR as the version bump.
+# Cuts a GitHub Release whenever the shipped version has no matching release yet.
+# Bump VERSION in the same PR as the manifests.
+#
+# WHY THIS RUNS ON EVERY PUSH TO MAIN, not just on pushes touching VERSION.
+#
+# It used to filter `paths: ['VERSION']`. That filter has cost this repo nothing
+# — 62e6f5e (2026-05-29) introduced VERSION and this workflow in the SAME commit
+# at VERSION=3.3.0, and all three values VERSION has held since (3.3.0, 3.4.0,
+# 3.5.0) have a release. The three manifest versions with no release — 1.0.0
+# (2026-03-31), 2.1.0 (2026-04-07) and 3.1.0 (2026-04-24) — all pre-date that
+# commit. Bug present, damage none, measured rather than assumed.
+#
+# It is removed anyway, because in the repo this workflow was copied from the
+# same filter lost a release for three months, and it lost it by NOT RUNNING —
+# which leaves no failed run, no skip message, and nothing in the Actions list to
+# notice. On agent-traffic-control:
+#
+#   43f4d62  "v1.13.0: ..."   marketplace.json + plugin.json -> 1.13.0
+#                             VERSION UNTOUCHED, still 1.12.0   <- no trigger
+#   6a49203  "v1.14.0: ..."   VERSION 1.12.0 -> 1.14.0          <- steps OVER 1.13.0
+#
+# `1.13.0` never existed in VERSION on main, so no later push could cut it either.
+#
+# THIS REPO IS THE CLOSEST ANALOGUE TO THE ONE THAT LOST IT, and having the guard
+# is not the protection it looks like. Like agent-traffic-control, this is a
+# single-plugin repo with a real drift guard: tests/manifest-consistency.test.mjs
+# asserts VERSION == plugin.json == package.json, so the manifests-bumped-
+# VERSION-forgotten commit goes red here. It went red there too — validate_plugins.py
+# failed on 43f4d62, check-run completed_at 2026-08-07T10:56:58Z — and the human
+# fix bumped over the missing value, satisfying the guard and leaving the release
+# permanently unreachable. A guard tells you a state is wrong; it does not tell
+# you what that wrong state already cost.
+#
+# The deeper reason to drop the filter is that it turns any TRANSIENT miss into a
+# permanent one. Filtered, the job's only retry is the next change to VERSION —
+# by which time VERSION holds a different value, so the skipped one can never be
+# cut. Unfiltered, every later push to main re-attempts it, so a run lost to a
+# token blip, a disabled workflow or a runner outage self-heals on the next commit.
+#
+# Running unconditionally is safe: the create step below is idempotent and skips
+# when the release exists. The cost is a ~15s no-op job per push to main.
 on:
   push:
     branches: [main]
-    paths: ['VERSION']
   workflow_dispatch:
 
 permissions:
@@ -30,6 +67,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           V="${{ steps.v.outputs.version }}"
+          # NOTE: both branches exit 0, so this job's `conclusion: success` says
+          # NOTHING about whether a release was cut. Read which line printed, or
+          # check `gh release view v$V`.
           if gh release view "v$V" >/dev/null 2>&1; then
             echo "Release v$V already exists — nothing to do."
           else
