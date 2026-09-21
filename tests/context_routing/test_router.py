@@ -459,9 +459,6 @@ class AuditTests(Fixture):
         self.assertEqual(before, cr.canonical(r))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class MultiRootTests(Fixture):
     def make_two(self):
@@ -519,3 +516,7 @@ class MultiRootTests(Fixture):
         r = cr.index(self.root, "test", ["*.md"])
         self.assertEqual(self.run_route(r)["selected_ids"], [])
         self.assertEqual(r["records"][0]["content_hash"], __import__('hashlib').sha256((self.root / "SKILL.md").read_bytes()).hexdigest())
+
+
+if __name__ == "__main__":
+    unittest.main()

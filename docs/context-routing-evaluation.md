@@ -104,6 +104,35 @@ report and rollback. Rollback is remove the optional advisory/stop passing activ
 set CONTEXT_ROUTER_DISABLE=1, and use the unchanged full plugin/native retrieval path.
 Source memories, existing hooks and global settings have not been rewritten.
 
-Outstanding evidence at PR creation: actual native A/B/C host runs, live Jev
-calibration, measured billed-token/cache effects, macOS installed-host integration,
-and subscription-value impact. These are release gates, not silently checked boxes.
+## Jev gate: what is now measured, and what is still open
+
+Updated 2026-09-21. The Jev transport was originally merged with its contract
+asserted from documentation only, and every Jev test injected a hand-written
+transport shaped to satisfy the validator it was testing. That could only prove
+the validator agreed with its author. The rows below separate what real calls
+established from what is still assumed.
+
+| Claim | Status | Evidence |
+|---|---|---|
+| Endpoint, request shape, Noul question/answer shape, integer `usage` | **Verified** | Documented, and matched by real responses |
+| `jev-1.13.0` accepted as a request model | **Verified live** | HTTP 200; response echoes `jev-1.13.0` |
+| The API echoes the resolved version, never the alias | **Verified live** | Requesting `jev-latest` returns `jev-1.13.0` |
+| Refusing aliases is required, not cosmetic | **Verified live** | A provider sending `jev-latest` would fail `unexpected_model` on every call |
+| Shipped `JevProvider.rank()` / `.compare()` work end-to-end | **Verified live** | `status: live`, real token usage returned |
+| Scores discriminate relevant from irrelevant records | **Weak evidence** | One synthetic set: relevant 0.82/0.77, irrelevant 0.01. Not a benchmark |
+| 3.0 s timeout survives the 32-candidate maximum | **Measured once** | ~0.83 s at 32 candidates; ~3.6x headroom, one machine, one day |
+| Invalid key leaks neither key nor response body | **Verified live** | 401 surfaces as bare `transport_failure` |
+| Missing key costs nothing | **Verified live** | `missing_key`, `attempted=False` |
+| Byte caps, timeout bounds, 32-candidate ceiling | **Local choice** | TypeSafe documents no such limits; ours are deliberately stricter |
+| 429 / 529 backoff behaviour | **Open** | Not reproducible on demand; zero retries means rate limiting degrades to local fallback |
+| 0.25 negative threshold is calibrated | **Open** | Still an experimental starting value; needs held-out calibration |
+| Native A/B/C host runs | **Open** | Needs the owner's held-out cases |
+| Billed-token, prompt-cache and subscription-value effects | **Open** | Unmeasured; no savings claim is made |
+| macOS installed-host integration | **Open** | Unmeasured |
+
+`tests/context_routing/fixtures/jev_live_responses.json` holds verbatim server
+responses; `test_live_contract.py` replays them through the shipped provider, so
+the offline suite now fails if the response contract moves. Re-capture per
+`tests/context_routing/fixtures/README.md`.
+
+The Open rows are release gates, not silently checked boxes.

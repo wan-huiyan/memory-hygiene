@@ -176,8 +176,20 @@ classifier or a substitute for consent. The hook adapter itself has no outbound 
 
 Set `TYPESAFE_API_KEY` locally; never place it in a repository, state JSON or PR. The
 provider uses the documented `POST /v1/systemone` Noul schema and pinned `jev-1.13.0`.
+
+The pin is required, not stylistic. Verified against the live API on 2026-09-21:
+requesting `jev-1.13.0` returns `jev-1.13.0`, and requesting the alias `jev-latest`
+*also* returns `jev-1.13.0` — the API echoes the resolved version, never the alias.
+Because the provider asserts `response["model"] == self.model`, a provider permitted
+to send `jev-latest` would raise `unexpected_model` on every live call. The
+constructor's version regex is what prevents that. `tests/context_routing/` replays
+the recorded responses, so this stops being an assumption the suite cannot check.
+
 It makes at most one rank call, with at most 32 approved candidates, a 3-second socket
-timeout, a 48,000-byte encoded payload cap and bounded response reads. No redirects or
+timeout, a 48,000-byte encoded payload cap and bounded response reads. TypeSafe
+documents no byte, timeout or question-count limits; these are our own bounds,
+deliberately stricter than the API. A full 32-candidate rank measured ~0.83 s against
+the 3.0 s timeout on 2026-09-21 — one observation, not a latency guarantee. No redirects or
 retries. No clipping that could conceal a warning. An optional semantic audit makes
 at most five pair judgments per invocation, only on approved summaries, and requires
 fresh source hashes. These are **proposals**, not truth determinations.
@@ -223,7 +235,7 @@ does not invent a new release version or rewrite historical documentation.
 | Lean catalogue trial | ATC scratch builder; no install, promotion or measured savings claim |
 | Production activation | Deliberately gated on actual host trials and owner review |
 
-## Sources verified 2026-09-20
+## Sources verified 2026-09-20, re-checked 2026-09-21
 
 - TypeSafe API contract: https://docs.typesafe.ai/api
 - Skill suggestion cookbook: https://docs.typesafe.ai/cookbooks/skill_suggestion
@@ -235,5 +247,14 @@ does not invent a new release version or rewrite historical documentation.
   https://github.com/kerpopule/hermes-jev-skills/commit/b44bc8d5a08d46d82f09a537c3446b51d762a221
   https://github.com/lomeshdutta/skill-router/commit/328a44576780a85a6aaddd21f924d711898e6712
 
-Prepared by ChatGPT. No live provider request, native-agent benchmark or automatic
-activation was performed as part of this implementation.
+Implementation prepared by ChatGPT; as written, it performed no live provider request,
+native-agent benchmark or automatic activation.
+
+Jev research owned by Claude from 2026-09-21. Re-checked on that date: every URL above
+resolves and supports what it is cited for, including both community commits. Real
+authenticated calls were then made against the live API, which is what produced the
+version-pin finding above and the recorded fixtures under `tests/context_routing/`.
+The measured-versus-still-open split lives in one table in
+[the evaluation protocol](context-routing-evaluation.md#jev-gate-what-is-now-measured-and-what-is-still-open);
+it is the single place to look before enabling `--jev`. Native-agent benchmarking and
+automatic activation remain not performed.

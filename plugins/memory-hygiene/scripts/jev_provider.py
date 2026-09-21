@@ -1,7 +1,36 @@
 """Optional Jev transport. No calls until --jev/API opt-in and reviewed egress.
 
-Contract checked against https://docs.typesafe.ai/api on 2026-09-20.
 No redirects, retries, transcript upload, automatic model aliases or response logs.
+
+Where the constants below come from — three different things, deliberately not
+blurred together, because a reader should not have to guess which numbers the
+vendor specified and which this file invented:
+
+  From the documented contract (https://docs.typesafe.ai/api, re-read 2026-09-21)
+    ENDPOINT, the request shape {model, state, questions}, the Noul question and
+    answer shape, and the integer usage fields.
+
+  Confirmed against the live API (real calls, 2026-09-21; see
+  tests/context_routing/fixtures/)
+    `jev-1.13.0` is accepted as a request model and is echoed back unchanged.
+    Requesting the alias `jev-latest` ALSO returns model `jev-1.13.0` — the API
+    echoes the resolved version, never the alias. That is why the constructor
+    regex refuses aliases: this class asserts response["model"] == self.model,
+    so a provider allowed to send `jev-latest` would raise unexpected_model on
+    every live call. The pin is what makes the check pass, not a nicety.
+
+  Local defensive caps, chosen here, NOT from the docs
+    MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, the default and maximum timeout, and
+    the 32-candidate ceiling in rank(). TypeSafe documents no byte, timeout or
+    question-count limit. These are our own egress and memory bounds; being
+    stricter than the API is intentional. Measured 2026-09-21: a full
+    32-candidate rank returned in ~0.83 s against the 3.0 s default, so the
+    timeout has roughly 3.6x headroom on one machine on one day. That is a
+    single observation, not a latency guarantee.
+
+Not verified: 429/529 behaviour (this client performs zero retries, so rate
+limiting degrades to deterministic local fallback) and whether 0.25 is a
+defensible negative threshold — that needs calibration against held-out cases.
 """
 from __future__ import annotations
 
