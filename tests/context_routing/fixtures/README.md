@@ -30,8 +30,11 @@ content only — whatever goes in the request is committed to the repository.
 
 ```sh
 export TYPESAFE_API_KEY=...        # never commit this
-python tests/context_routing/fixtures/capture.py
+python tests/context_routing/fixtures/capture.py 2026-09-21   # the UTC capture date
 ```
+
+The date argument is required; `capture.py` refuses to guess it, so the
+`captured_utc` field always reflects a date a human chose.
 
 If a re-capture changes the response *shape* (not just the probabilities), that is
 a contract change: update `jev_provider.py` in the same commit and say so in the

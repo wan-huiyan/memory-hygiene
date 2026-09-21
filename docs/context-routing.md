@@ -194,6 +194,31 @@ retries. No clipping that could conceal a warning. An optional semantic audit ma
 at most five pair judgments per invocation, only on approved summaries, and requires
 fresh source hashes. These are **proposals**, not truth determinations.
 
+### Two verified limitations of the optional transport
+
+Both were confirmed by running the code on 2026-09-21. Neither leaks anything and
+neither blocks merge, because the transport is opt-in and both fail toward local
+retrieval — but both are silent, which is the part worth knowing.
+
+**Every HTTP failure arrives as the single word `transport_failure`.** A 401 (bad
+key), a 422 (the body names the offending field), a 429 (rate limited) and a socket
+timeout are indistinguishable to the operator; `raise ... from None` drops the
+original traceback too. Confirmed live with a deliberately invalid key. This is
+deliberate about not logging response bodies, and it does leak neither the key nor
+the body — but it also means a misconfigured key and a throttled account look
+identical. Diagnosing either currently requires editing the provider.
+
+**The credential screen blocks ordinary sentences about credentials.** `screen_public`
+is a regex guard, not a classifier, and the email pattern also matches SSH clone URLs.
+Measured: `Authenticate with a Bearer token in the Authorization header.`,
+`Clone with git@github.com:owner/repo.git before running.`, `Rotate the api_key: see
+the vault runbook.` and `Never store a password = value in the repository.` are all
+refused, while `Procedure for rotating database credentials in staging.` passes. The
+refusal is per-request, so one such summary drops the whole ranking call to local
+retrieval — and security-adjacent memories are exactly the ones most likely to trip it.
+Erring toward refusal is the right default for an egress guard; the cost is reduced
+Jev coverage, not exposure.
+
 A strongly negative optional-group score can remove that whole group; uncertain or
 unjudged groups retain local retrieval. The 0.25 negative threshold is an experimental
 starting value, **not a calibrated correctness probability**. Required and conflict

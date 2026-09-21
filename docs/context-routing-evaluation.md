@@ -106,7 +106,7 @@ Source memories, existing hooks and global settings have not been rewritten.
 
 ## Jev gate: what is now measured, and what is still open
 
-Updated 2026-09-21. The Jev transport was originally merged with its contract
+Updated 2026-09-21. The Jev transport was originally written with its contract
 asserted from documentation only, and every Jev test injected a hand-written
 transport shaped to satisfy the validator it was testing. That could only prove
 the validator agreed with its author. The rows below separate what real calls
