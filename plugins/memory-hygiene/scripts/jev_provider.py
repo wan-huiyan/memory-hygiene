@@ -151,6 +151,12 @@ class JevProvider:
         if not isinstance(usage, dict) or any(type(usage.get(k)) is not int or usage[k] < 0
                                             for k in ("input_tokens", "output_tokens")):
             usage = None  # Missing usage is unknown spend, not zero spend.
+        else:
+            # Rebuild from an allowlist rather than forwarding the server's object.
+            # Anything else it carries is unvalidated text from a response body, and
+            # this report is printed and fed to a model. Validating two keys is not
+            # the same as dropping the rest.
+            usage = {"input_tokens": usage["input_tokens"], "output_tokens": usage["output_tokens"]}
         return values, {"status": "live", "attempted": True, "resolved_model": response["model"],
                         "usage": usage, "cost_unknown": usage is None,
                         "latency_ms": round(1000 * (time.monotonic() - start), 3)}

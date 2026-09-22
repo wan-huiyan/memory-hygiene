@@ -587,6 +587,49 @@ class ErrorVisibilityTests(Fixture):
             self.assertFalse(report["cost_unknown"])
 
 
+class ResponsePassthroughTests(Fixture):
+    """Nothing the server puts in a response may reach the report verbatim."""
+
+    def usage_report(self, usage):
+        p = JevProvider(transport=lambda payload: {
+            "model": "jev-1.13.0",
+            "answers": {k: {"type": "noul", "noul": 0.9} for k in payload["questions"]},
+            "usage": usage})
+        return p.rank("task", {"a": "a reviewed public summary"})[1]
+
+    def test_extra_usage_keys_are_not_reproduced(self):
+        """The server controls this object; only the two counters are ours to trust."""
+        report = self.usage_report({"input_tokens": 10, "output_tokens": 1,
+                                    "note": "ATTACKER_TEXT_FROM_RESPONSE_BODY"})
+        self.assertNotIn("ATTACKER_TEXT_FROM_RESPONSE_BODY", json.dumps(report))
+        self.assertEqual(report["usage"], {"input_tokens": 10, "output_tokens": 1})
+
+    def test_nested_structures_in_usage_are_not_reproduced(self):
+        report = self.usage_report({"input_tokens": 10, "output_tokens": 1,
+                                    "nested": {"deep": ["arbitrary", {"k": "INJECTED"}]}})
+        self.assertNotIn("INJECTED", json.dumps(report))
+        self.assertEqual(set(report["usage"]), {"input_tokens", "output_tokens"})
+
+    def test_valid_usage_still_reports_both_counters(self):
+        report = self.usage_report({"input_tokens": 7, "output_tokens": 3})
+        self.assertEqual(report["usage"], {"input_tokens": 7, "output_tokens": 3})
+        self.assertFalse(report["cost_unknown"])
+
+    def test_malformed_usage_is_still_unknown_not_zero(self):
+        report = self.usage_report({"input_tokens": "many", "output_tokens": 1})
+        self.assertIsNone(report["usage"])
+        self.assertTrue(report["cost_unknown"])
+
+    def test_compare_path_is_screened_too(self):
+        """audit --jev emits the same report object through a different call."""
+        p = JevProvider(transport=lambda payload: {
+            "model": "jev-1.13.0",
+            "answers": {k: {"type": "noul", "noul": 0.5} for k in payload["questions"]},
+            "usage": {"input_tokens": 1, "output_tokens": 1, "leak": "INJECTED_VIA_COMPARE"}})
+        report = p.compare("left summary", "right summary")[1]
+        self.assertNotIn("INJECTED_VIA_COMPARE", json.dumps(report))
+
+
 class FanoutCapTests(Fixture):
     """The 32-candidate cap must drop the least relevant, and say what it dropped."""
 
