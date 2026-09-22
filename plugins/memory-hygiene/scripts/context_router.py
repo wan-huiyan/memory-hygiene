@@ -34,6 +34,19 @@ class RoutingError(ValueError):
     """A visible, recoverable routing failure; never permission to proceed."""
 
 
+def error_code(exc: BaseException) -> str:
+    """The closed-vocabulary code when we raised it, the class name otherwise.
+
+    Routing and provider errors carry codes written in this repository, so
+    reporting them reveals nothing about an external response. Any other
+    exception contributes only its type: its message may quote a payload.
+    """
+    if isinstance(exc, RoutingError):
+        return str(exc) or type(exc).__name__
+    code = getattr(exc, "provider_error_code", None)
+    return code if isinstance(code, str) and code else type(exc).__name__
+
+
 def canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=True, separators=(",", ":"), allow_nan=False)
 
@@ -459,7 +472,13 @@ def route(registry: dict, root: Path | dict[str, Path], state: dict, *, mode: st
             reasons[seed] = "conflict_evidence_protected"
     optional = sorted(set().union(*groups.values()) - protected) if groups else []
     # Score only eligible records with explicitly approved, separate outbound summaries.
-    judge_ids = [key for key in optional if by_id[key]["egress_approved"]][:32]
+    # Order by local relevance before the fan-out cap: `optional` is sorted by id, so
+    # truncating it directly would drop candidates alphabetically. Dependencies pulled
+    # in by a closure carry no lexical score of their own and rank last, behind every
+    # record that actually matched the task.
+    approved = [key for key in optional if by_id[key]["egress_approved"]]
+    by_relevance = sorted(approved, key=lambda key: (-lexical.get(key, 0), key))
+    judge_ids, over_cap = by_relevance[:32], sorted(by_relevance[32:])
     judge_scores = {}
     provider_report = {"status": "not_requested", "attempted": False, "usage": None}
     if provider and judge_ids and state.get("public_task"):
@@ -486,12 +505,14 @@ def route(registry: dict, root: Path | dict[str, Path], state: dict, *, mode: st
                     session.cache[key] = (judge_scores, provider_report)
             except Exception as exc:  # External optional component cannot remove safeguards.
                 judge_scores = {}
-                provider_report = {"status": "fallback", "error_type": type(exc).__name__,
+                provider_report = {"status": "fallback", "error_type": error_code(exc),
                                    "attempted": getattr(exc, "attempted", True), "usage": None,
                                    "cost_unknown": getattr(exc, "attempted", True)}
     elif provider:
         provider_report["status"] = "local_privacy_fallback"
     provider_report["unjudged_optional_ids"] = sorted(set(optional) - set(judge_scores))
+    # Never sent is a different fact from sent and scored low. Keep them apart.
+    provider_report["over_fanout_cap_ids"] = over_cap
     selected = sorted(protected)
     payload = render(selected, by_id, texts)
     protected_overflow = len(payload.encode()) > budget_bytes
@@ -581,8 +602,10 @@ def audit(registry: dict, changed_ids: list[str] | None = None, limit: int = 50,
                 proposal["semantic_proposal"], proposal["provider"] = provider.compare(
                     left["public_summary"], right["public_summary"])
             except Exception as exc:
-                proposal["provider"] = {"status": "fallback", "error_type": type(exc).__name__,
-                                        "usage": None, "cost_unknown": True}
+                proposal["provider"] = {"status": "fallback", "error_type": error_code(exc),
+                                        "attempted": getattr(exc, "attempted", True),
+                                        "usage": None,
+                                        "cost_unknown": getattr(exc, "attempted", True)}
     return {"proposals": proposals, "compared_candidates": len(pairs),
             "truncated": candidate_truncated or len(pairs) > limit, "writes": 0, "source_verified": root is not None,
             "semantic_attempts": judgments, "semantic_judgment": "proposals_only" if judgments else "not_run"}

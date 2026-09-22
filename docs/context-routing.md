@@ -194,30 +194,50 @@ retries. No clipping that could conceal a warning. An optional semantic audit ma
 at most five pair judgments per invocation, only on approved summaries, and requires
 fresh source hashes. These are **proposals**, not truth determinations.
 
-### Two verified limitations of the optional transport
+### Failure reporting
 
-Both were confirmed by running the code on 2026-09-21. Neither leaks anything and
-neither blocks merge, because the transport is opt-in and both fail toward local
-retrieval — but both are silent, which is the part worth knowing.
+Every provider failure reports a code from a closed vocabulary written in this
+repository, never text from a response body. Verified against the live API on
+2026-09-22: a retired model pin reports `http_400`, an invalid key `http_401`, a
+slow socket `timeout`, an unreachable host `connection_failed`, and anything
+unrecognised the generic `transport_failure`. An unrecognised exception
+contributes only its type, because its message may quote our own payload back.
 
-**Every HTTP failure arrives as the single word `transport_failure`.** A 401 (bad
-key), a 422 (the body names the offending field), a 429 (rate limited) and a socket
-timeout are indistinguishable to the operator; `raise ... from None` drops the
-original traceback too. Confirmed live with a deliberately invalid key. This is
-deliberate about not logging response bodies, and it does leak neither the key nor
-the body — but it also means a misconfigured key and a throttled account look
-identical. Diagnosing either currently requires editing the provider.
+This matters because the client pins an exact model version. When `jev-1.13.0` is
+eventually retired every call will fail, and `http_400` says so; until 2026-09-22
+the operator saw `transport_failure`, indistinguishable from an outage.
 
-**The credential screen blocks ordinary sentences about credentials.** `screen_public`
-is a regex guard, not a classifier, and the email pattern also matches SSH clone URLs.
-Measured: `Authenticate with a Bearer token in the Authorization header.`,
-`Clone with git@github.com:owner/repo.git before running.`, `Rotate the api_key: see
-the vault runbook.` and `Never store a password = value in the repository.` are all
-refused, while `Procedure for rotating database credentials in staging.` passes. The
-refusal is per-request, so one such summary drops the whole ranking call to local
-retrieval — and security-adjacent memories are exactly the ones most likely to trip it.
-Erring toward refusal is the right default for an egress guard; the cost is reduced
-Jev coverage, not exposure.
+`attempted` separates a request that left the machine from one that never did, and
+`cost_unknown` follows it: a failure before sending is known-zero spend, not
+unknown spend. A response that arrived without usage stays unknown.
+
+### A verified limitation of the content screen
+
+`screen_public` is a regex guard, not a classifier, and its email pattern also
+matches SSH clone URLs. Measured: `Authenticate with a Bearer token in the
+Authorization header.`, `Clone with git@github.com:owner/repo.git before running.`,
+`Rotate the api_key: see the vault runbook.` and `Never store a password = value in
+the repository.` are all refused, while `Procedure for rotating database credentials
+in staging.` passes. The refusal is per-request, so one such summary drops the whole
+ranking call to local retrieval — and security-adjacent memories are exactly the ones
+most likely to trip it. Erring toward refusal is the right default for an egress
+guard; the cost is reduced Jev coverage, not exposure. Tracked in issue #13.
+
+### Which candidates reach the provider
+
+At most 32 approved candidates are scored per call. They are chosen by local
+relevance, not by id: `optional` is sorted by id, so truncating it directly dropped
+candidates alphabetically, and dependencies pulled in by a closure — which carry no
+lexical score of their own — could consume the entire budget ahead of every record
+that actually matched the task. Candidates beyond the cap are reported under
+`over_fanout_cap_ids`, kept separate from `unjudged_optional_ids`, because never
+sent is a different fact from sent and scored low.
+
+Note a vendor caution that bears on this design: TypeSafe states that noul scores
+"aren't directly comparable across questions", and `rank()` asks one question per
+candidate and orders by the results. It may work in practice; it means a threshold
+calibrated on one corpus cannot be assumed to transfer to another, which makes
+threshold calibration a harder open gate than a single number suggests.
 
 A strongly negative optional-group score can remove that whole group; uncertain or
 unjudged groups retain local retrieval. The 0.25 negative threshold is an experimental
