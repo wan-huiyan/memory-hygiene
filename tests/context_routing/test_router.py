@@ -620,19 +620,25 @@ class FanoutCapTests(Fixture):
         return seen, out["provider"]
 
     def test_cap_judges_the_matching_records_not_their_dependencies(self):
+        """Under id ordering this was exactly inverted: 32 deps, zero seeds."""
         seen, _ = self.judged()
         self.assertTrue(seen, "the provider was never called")
-        summaries = json.dumps(seen[0]["state"]["candidates"])
-        self.assertLessEqual(len(seen[0]["state"]["candidates"]), 32)
-        self.assertIn("Deployment procedure", summaries)
+        sent = list(seen[0]["state"]["candidates"].values())
+        self.assertEqual(len(sent), 32)
+        # Every single judged candidate must be a record that matched the task.
+        self.assertEqual([s for s in sent if s.startswith("Deployment procedure")], sent)
+        self.assertEqual([s for s in sent if s.startswith("Dependency")], [])
 
     def test_records_dropped_by_the_cap_are_reported_separately(self):
         """Never judged is a different fact from judged and scored low."""
         _, report = self.judged()
         dropped = report.get("over_fanout_cap_ids")
         self.assertIsInstance(dropped, list)
-        self.assertTrue(dropped, "the cap truncated but reported nothing")
-        self.assertFalse(set(dropped) & set(report.get("unjudged_optional_ids", []) or []) - set(dropped))
+        self.assertEqual(len(dropped), 32, "32 approved records were past the cap")
+        # The dropped ones are the irrelevant dependencies, not the matching seeds.
+        self.assertTrue(all(i.startswith("test:dep-") for i in dropped), dropped[:3])
+        # They are unjudged too, but the cap is why — that distinction is the point.
+        self.assertLessEqual(set(dropped), set(report["unjudged_optional_ids"]))
 
 
 if __name__ == "__main__":
