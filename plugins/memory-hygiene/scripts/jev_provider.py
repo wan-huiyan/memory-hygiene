@@ -22,8 +22,12 @@ vendor specified and which this file invented:
   Local defensive caps, chosen here, NOT from the docs
     MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, the default and maximum timeout, and
     the 32-candidate ceiling in rank(). TypeSafe documents no byte, timeout or
-    question-count limit. These are our own egress and memory bounds; being
-    stricter than the API is intentional. Measured 2026-09-21: a full
+    question-count limit — but it is not silent on request size, it states the
+    limit in a different unit: 64k tokens per request, of which `state` plus the
+    longest single question must fit 32k. Our byte caps are a separate, stricter,
+    self-imposed bound and do not model that split; at current usage (a measured
+    32-candidate rank used 3,408 input tokens) there is ample room under both.
+    Being stricter than the API is intentional. Measured 2026-09-21: a full
     32-candidate rank returned in ~0.83 s against the 3.0 s default, so the
     timeout has roughly 3.6x headroom on one machine on one day. That is a
     single observation, not a latency guarantee.
@@ -39,6 +43,7 @@ import math
 import os
 import re
 import time
+import urllib.error
 import urllib.request
 
 ENDPOINT = "https://api.typesafe.ai/v1/systemone"
@@ -48,9 +53,15 @@ MAX_RESPONSE_BYTES = 131072
 
 
 class ProviderError(ValueError):
+    """A provider failure. `message` is a code from a closed vocabulary written
+    here, never text from a response body, so a caller may safely report it."""
+
     def __init__(self, message: str, *, attempted: bool = False):
         super().__init__(message)
         self.attempted = attempted
+        # Distinctive name: a caller can identify our codes without importing
+        # this optional module, and cannot mistake an unrelated `.code` for one.
+        self.provider_error_code = message
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -93,8 +104,20 @@ class JevProvider:
         request = urllib.request.Request(ENDPOINT, data=body, method="POST", headers={
             "Authorization": "Bearer " + key, "Content-Type": "application/json"})
         # Proxy routing is an operator choice. Host and redirects remain fixed.
-        with urllib.request.build_opener(NoRedirect()).open(request, timeout=self.timeout) as response:
-            raw = response.read(MAX_RESPONSE_BYTES + 1)
+        try:
+            with urllib.request.build_opener(NoRedirect()).open(request, timeout=self.timeout) as response:
+                raw = response.read(MAX_RESPONSE_BYTES + 1)
+        except ProviderError:
+            raise
+        except urllib.error.HTTPError as exc:
+            # The status alone. The body may quote our payload, so it is never read.
+            raise ProviderError(f"http_{exc.code}", attempted=True) from None
+        except TimeoutError:
+            raise ProviderError("timeout", attempted=True) from None
+        except urllib.error.URLError as exc:
+            if isinstance(getattr(exc, "reason", None), TimeoutError):
+                raise ProviderError("timeout", attempted=True) from None
+            raise ProviderError("connection_failed", attempted=True) from None
         if len(raw) > MAX_RESPONSE_BYTES:
             raise ProviderError("response_too_large", attempted=True)
         return json.loads(raw)

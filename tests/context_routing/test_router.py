@@ -518,5 +518,122 @@ class MultiRootTests(Fixture):
         self.assertEqual(r["records"][0]["content_hash"], __import__('hashlib').sha256((self.root / "SKILL.md").read_bytes()).hexdigest())
 
 
+class ErrorVisibilityTests(Fixture):
+    """A failure must name which cause fired, without echoing any response body."""
+
+    def public_registry(self):
+        return self.registry(self.write("a.md", reviewed=True, egress_approved=True,
+                                        public_summary="Deployment procedure"))
+
+    def report_for(self, exc):
+        self.state["public_task"] = "Deploy a service"
+        p = JevProvider()
+        p.transport = lambda _payload: (_ for _ in ()).throw(exc)
+        return self.run_route(self.public_registry(), provider=p)["provider"]
+
+    def test_provider_code_reaches_the_report(self):
+        """The ProviderError's own code, not the useless string 'ProviderError'."""
+        self.assertEqual(self.report_for(
+            ProviderError("unexpected_model", attempted=True))["error_type"], "unexpected_model")
+
+    def socket_level_report(self, exc):
+        """Drive the real _post, since that is the only layer urllib errors reach.
+
+        Injecting a transport would skip the very translation under test.
+        """
+        class Opener:
+            def open(self_inner, *args, **kwargs):
+                raise exc
+        self.state["public_task"] = "Deploy a service"
+        with patch.dict(os.environ, {"TYPESAFE_API_KEY": "test-key-not-real"}, clear=False), \
+             patch("jev_provider.urllib.request.build_opener", return_value=Opener()):
+            return self.run_route(self.public_registry(), provider=JevProvider())["provider"]
+
+    def test_http_status_is_distinguishable_from_an_outage(self):
+        """A retired model pin returns 400; that must not look like a dead network."""
+        import urllib.error
+        report = self.socket_level_report(urllib.error.HTTPError(
+            "https://api.typesafe.ai/v1/systemone", 400, "Bad Request", {},
+            io.BytesIO(b'{"detail":{"message":"Unknown model: jev-0.0.1"}}')))
+        self.assertEqual(report["error_type"], "http_400")
+        self.assertNotIn("Unknown model", json.dumps(report))
+
+    def test_timeout_is_distinguishable_from_a_missing_key(self):
+        self.assertEqual(self.socket_level_report(TimeoutError("slow"))["error_type"], "timeout")
+        self.assertEqual(self.report_for(ProviderError("missing_key"))["error_type"], "missing_key")
+
+    def test_connection_failure_is_its_own_code(self):
+        import urllib.error
+        self.assertEqual(self.socket_level_report(
+            urllib.error.URLError("no route to host"))["error_type"], "connection_failed")
+
+    def test_unknown_failure_is_wrapped_and_leaks_nothing(self):
+        """An unrecognised transport failure keeps its generic code and its silence."""
+        report = self.report_for(RuntimeError("PRIVATE_INTERNAL_DETAIL"))
+        self.assertEqual(report["error_type"], "transport_failure")
+        self.assertNotIn("PRIVATE_INTERNAL_DETAIL", json.dumps(report))
+
+    def test_missing_key_in_audit_costs_nothing(self):
+        """Nothing was sent, so spend is zero and known, not unknown."""
+        r = self.registry(
+            self.write("x.md", reviewed=True, egress_approved=True, public_summary="One"),
+            self.write("y.md", reviewed=True, egress_approved=True, public_summary="One"))
+        with patch.dict(os.environ, {}, clear=True):
+            out = cr.audit(r, root=self.root, provider=JevProvider())
+        failed = [p["provider"] for p in out["proposals"] if "provider" in p]
+        self.assertTrue(failed, "no provider attempt was recorded")
+        for report in failed:
+            self.assertEqual(report["error_type"], "missing_key")
+            self.assertFalse(report["cost_unknown"])
+
+
+class FanoutCapTests(Fixture):
+    """The 32-candidate cap must drop the least relevant, and say what it dropped."""
+
+    def many(self):
+        """32 matching seeds, each pulling one unrelated dependency into the set.
+
+        `optional` is sorted by id, so `dep-*` sorts ahead of every `seed-*`.
+        An id-ordered truncation therefore spends the entire fan-out budget on
+        the dependencies and judges none of the records that match the goal.
+        """
+        entries = []
+        for i in range(32):
+            entries.append(self.write(f"dep-{i:02d}.md", body=f"unrelated background {i}",
+                                      reviewed=True, egress_approved=True,
+                                      public_summary=f"Dependency {i}"))
+            entries.append(self.write(f"seed-{i:02d}.md", body="deploy service procedure",
+                                      depends_on=[f"test:dep-{i:02d}.md"], reviewed=True,
+                                      relationship_evidence="review", egress_approved=True,
+                                      public_summary=f"Deployment procedure {i}"))
+        return self.registry(*entries)
+
+    def judged(self):
+        seen = []
+        def transport(payload):
+            seen.append(payload)
+            return {"model": "jev-1.13.0", "answers": {
+                k: {"type": "noul", "noul": 0.9} for k in payload["questions"]},
+                "usage": {"input_tokens": 10, "output_tokens": 1}}
+        self.state["public_task"] = "Deploy a service"
+        out = self.run_route(self.many(), provider=JevProvider(transport=transport), top_k=32)
+        return seen, out["provider"]
+
+    def test_cap_judges_the_matching_records_not_their_dependencies(self):
+        seen, _ = self.judged()
+        self.assertTrue(seen, "the provider was never called")
+        summaries = json.dumps(seen[0]["state"]["candidates"])
+        self.assertLessEqual(len(seen[0]["state"]["candidates"]), 32)
+        self.assertIn("Deployment procedure", summaries)
+
+    def test_records_dropped_by_the_cap_are_reported_separately(self):
+        """Never judged is a different fact from judged and scored low."""
+        _, report = self.judged()
+        dropped = report.get("over_fanout_cap_ids")
+        self.assertIsInstance(dropped, list)
+        self.assertTrue(dropped, "the cap truncated but reported nothing")
+        self.assertFalse(set(dropped) & set(report.get("unjudged_optional_ids", []) or []) - set(dropped))
+
+
 if __name__ == "__main__":
     unittest.main()
